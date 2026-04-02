@@ -224,7 +224,7 @@ sequenceDiagram
 
 ---
 
-- [ ] **Unit 4: PII text handling + safe logging primitives**
+- [x] **Unit 4: PII text handling + safe logging primitives**
 
 **Goal:** Centralize **R14** (**textual** mask + warning) and **R13** (**stderr** secret redaction). **Do not** log full JSON tool payloads to stderr. Downstream tools **compose** context + content through these helpers.
 
