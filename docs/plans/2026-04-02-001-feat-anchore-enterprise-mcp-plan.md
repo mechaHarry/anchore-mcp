@@ -250,7 +250,7 @@ sequenceDiagram
 
 ---
 
-- [ ] **Unit 5: Tools — vulnerabilities and images (read)**
+- [x] **Unit 5: Tools — vulnerabilities and images (read)**
 
 **Goal:** **R5** tools — CVE query by image/artifact; list/search images by vulnerability criteria per API support.
 
