@@ -4,7 +4,8 @@ MCP server for **Anchore Enterprise**: named profiles, read-only CVE/image insig
 
 ## Prerequisites
 
-- **Node.js** 20+ (see `.nvmrc`)
+- **Node.js** 20 or newer (LTS). Primary development targets **Node 25.x** (see `.nvmrc` — currently `25.9.0`).
+- **npm** or **pnpm** — either works; lockfile is **npm** (`package-lock.json`). If you use pnpm, run `pnpm install` and it will respect `package.json`; consider committing `pnpm-lock.yaml` only if the team standardizes on pnpm.
 
 ## Setup
 
@@ -12,6 +13,14 @@ MCP server for **Anchore Enterprise**: named profiles, read-only CVE/image insig
 npm install
 npm run build
 npm test
+```
+
+With **pnpm**:
+
+```bash
+pnpm install
+pnpm run build
+pnpm test
 ```
 
 ## Run (stdio MCP)
