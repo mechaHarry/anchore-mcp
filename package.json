@@ -6,6 +6,7 @@
   "engines": {
     "node": ">=20"
   },
+  "packageManager": "pnpm@9.15.9",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
@@ -16,6 +17,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.0",
+    "yaml": "^2.7.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {

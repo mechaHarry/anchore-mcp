@@ -1,0 +1,16 @@
+# Copy to ~/.config/anchore-mcp/config.yaml (Unix) or set ANCHORE_MCP_CONFIG to a file path.
+# Never commit real tokens — use passwordEnv pointing at an env var (e.g. in your shell or a secrets manager).
+
+defaultProfile: prod
+
+profiles:
+  prod:
+    baseUrl: https://anchore.example.com
+    username: _api_key
+    passwordEnv: ANCHORE_PROD_TOKEN
+    # account: optional-account-name
+
+  lab:
+    baseUrl: https://anchore-lab.example.com
+    username: _api_key
+    passwordEnv: ANCHORE_LAB_TOKEN

@@ -4,18 +4,10 @@ MCP server for **Anchore Enterprise**: named profiles, read-only CVE/image insig
 
 ## Prerequisites
 
-- **Node.js** 20 or newer (LTS). Primary development targets **Node 25.x** (see `.nvmrc` — currently `25.9.0`).
-- **npm** or **pnpm** — either works; lockfile is **npm** (`package-lock.json`). If you use pnpm, run `pnpm install` and it will respect `package.json`; consider committing `pnpm-lock.yaml` only if the team standardizes on pnpm.
+- **Node.js** 20+ (see `.nvmrc` for the version used in development).
+- [**pnpm**](https://pnpm.io/) — lockfile is `pnpm-lock.yaml`. Use [Corepack](https://nodejs.org/api/corepack.html) (`corepack enable`) to install the version from `package.json`’s `packageManager` field.
 
 ## Setup
-
-```bash
-npm install
-npm run build
-npm test
-```
-
-With **pnpm**:
 
 ```bash
 pnpm install
@@ -23,9 +15,14 @@ pnpm run build
 pnpm test
 ```
 
+## Configuration
+
+- Copy [config.example.yaml](config.example.yaml) to `~/.config/anchore-mcp/config.yaml` (Unix) or set **`ANCHORE_MCP_CONFIG`** to an absolute path of your YAML file.
+- Each profile uses **`username: _api_key`** and **`passwordEnv`** naming an environment variable that holds the API token (never put the token in the YAML file).
+
 ## Run (stdio MCP)
 
-After `npm run build`:
+After `pnpm run build`:
 
 ```bash
 node dist/index.js
@@ -35,4 +32,4 @@ Configure your AI client to launch this command for the MCP server (stdio transp
 
 ## Status
 
-Implementation follows the plan units. **Unit 1** provides a minimal stdio server and the `anchore_list_profiles` smoke tool (empty profiles until profile config lands in Unit 2).
+Implementation follows the plan units. **Unit 2** loads **named profiles** from YAML (Zod-validated), **`defaultProfile`**, **`ANCHORE_MCP_CONFIG`**, and exposes `anchore_list_profiles` with non-secret metadata.

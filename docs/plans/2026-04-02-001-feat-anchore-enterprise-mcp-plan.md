@@ -177,7 +177,7 @@ sequenceDiagram
 
 ---
 
-- [ ] **Unit 2: Profile configuration model**
+- [x] **Unit 2: Profile configuration model**
 
 **Goal:** Load **multiple profiles**, **default** + **override** resolution, credentials via **secure binding** (no secrets in git).
 
