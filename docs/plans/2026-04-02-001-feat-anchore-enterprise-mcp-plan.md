@@ -201,7 +201,7 @@ sequenceDiagram
 
 ---
 
-- [ ] **Unit 3: Anchore HTTP client**
+- [x] **Unit 3: Anchore HTTP client**
 
 **Goal:** Shared HTTPS client: timeouts, auth header construction, status mapping, **no sensitive data on stderr** (raw bodies).
 
