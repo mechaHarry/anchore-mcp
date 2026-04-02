@@ -154,7 +154,7 @@ sequenceDiagram
 
 ## Implementation Units
 
-- [ ] **Unit 1: Repository and MCP bootstrap**
+- [x] **Unit 1: Repository and MCP bootstrap**
 
 **Goal:** Runnable **stdio** MCP server, lint/tsconfig baseline, smoke tool (e.g. list profile **names** + active default) proving wiring.
 
