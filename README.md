@@ -89,15 +89,6 @@ Mitigations:
 1. **Trust the workspace first**, then enable or restart the MCP server / agent session.
 2. Use an **absolute path** to `dist/index.js` in MCP config (wrong `cwd` → wrong relative path → crash on import; check stderr for `[anchore-mcp] startup:`).
 
-### `agent ls` or MCP UI stuck even after removing this server
-
-That usually means **Cursor state** or **invalid JSON**, not this repo’s binary:
-
-1. **Validate** your MCP config file: `python3 -m json.tool /path/to/mcp.json` (fix any parse error — one bad block can break the whole file).
-2. **Fully quit Cursor** (not only close the window) and reopen — MCP/agent state is often cached in memory.
-3. Check both **user** and **workspace** MCP files (e.g. `~/.cursor/mcp.json` vs `.cursor/mcp.json`) so you are not editing the wrong one.
-4. If problems persist **with anchore-mcp removed**, open **Cursor Help → Toggle Developer Tools** and check the Console, or report to Cursor support — the agent list is part of the IDE, not something this server can reset from code.
-
 Image list **filtering** is limited to what the tool forwards (`fulltag`, `vulnerability_id`) and what your Anchore **`/v2/openapi.json`** documents for `GET /v2/images`. There is no generic substring filter in the API in many deployments; tighter server-side filters are a follow-up (extra query parameters from your OpenAPI spec).
 
 ## Status
