@@ -21,6 +21,15 @@ That file is the source of truth for paths, query parameters, and response shape
 |------|----------------|-------|
 | Images | `GET /v2/images` | List images; large lists may use an `items` array wrapper |
 | Image vulns | `GET /v2/images/{image_digest}/vuln/all` | Vulnerability type `all`; see OpenAPI for other `vuln/{type}` routes |
+| Image SBOM | `GET /v2/images/{image_digest}/sboms/native-json` | Syft native JSON (“normal” mode in MCP) — segment is plural **`sboms`** |
+| Image SBOM | `GET /v2/images/{image_digest}/sboms/spdx-json` | SPDX JSON |
+| Image SBOM | `GET /v2/images/{image_digest}/sboms/cyclonedx-json` | CycloneDX JSON |
+| Policy check | `GET /v2/images/{image_digest}/check` | Optional query: `tag`, `base_digest` — confirm on your OpenAPI |
+| Image record | `GET /v2/images/{image_digest}` | Single-image metadata (fields vary by version) |
+
+### SBOM path pitfall (400 Bad Request)
+
+Enterprise **v2** OpenAPI lists image SBOMs under **`.../sboms/...`** (plural). Calling **`.../sbom/...`** (singular) can return **HTTP 400** with a non-obvious body. This MCP uses `/sboms/` for v2. **Source** repository SBOM routes in Anchore docs often use `/v2/sources/{id}/sbom/...` (singular) — image vs source paths are not interchangeable; always confirm on `GET /v2/openapi.json`.
 
 ## V1 (legacy)
 

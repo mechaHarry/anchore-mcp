@@ -7,6 +7,8 @@ import {
   loadConnectionFromEnv,
 } from "../config/connection.js";
 import { runListImages } from "../tools/images.js";
+import { runImageDetail, runImagePolicyCheck } from "../tools/reports.js";
+import { runImageSbom } from "../tools/sbom.js";
 import { runImageVulnerabilities } from "../tools/vulnerabilities.js";
 
 const SERVER_NAME = "anchore-mcp";
@@ -86,6 +88,65 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
     },
     async (args) =>
       runImageVulnerabilities(args, { connection: options.connection }),
+  );
+
+  server.tool(
+    "anchore_image_sbom",
+    "Fetch SBOM JSON for an analyzed image digest. Uses GET /v2/images/{digest}/sboms/{native-json|spdx-json|cyclonedx-json} (Syft native, SPDX JSON, or CycloneDX JSON). Responses include sizeBytes (R15). Default max_response_bytes=20MB — increase explicitly for huge SBOMs; otherwise the tool fails with a clear error (no silent truncation). Confirm paths on your deployment /v2/openapi.json.",
+    {
+      image_digest: z
+        .string()
+        .min(1)
+        .describe("Image digest, e.g. sha256:…"),
+      format: z
+        .enum(["normal", "spdx", "cyclonedx"])
+        .describe(
+          "normal = Syft native JSON; spdx / cyclonedx = interchange JSON variants",
+        ),
+      max_response_bytes: z
+        .number()
+        .int()
+        .positive()
+        .max(100_000_000)
+        .optional()
+        .describe(
+          "Reject larger HTTP bodies (UTF-8 bytes). Default 20_000_000.",
+        ),
+    },
+    async (args) => runImageSbom(args, { connection: options.connection }),
+  );
+
+  server.tool(
+    "anchore_image_policy_check",
+    "Policy compliance evaluation for an image (GET /v2/images/{digest}/check). Pass tag when your Anchore version requires it. Optional base_digest for base-image comparison. Returns gate findings — see Anchore policy docs.",
+    {
+      image_digest: z
+        .string()
+        .min(1)
+        .describe("Image digest, e.g. sha256:…"),
+      tag: z
+        .string()
+        .optional()
+        .describe("Full image tag if required, e.g. docker.io/library/nginx:latest"),
+      base_digest: z
+        .string()
+        .optional()
+        .describe("Optional base image digest for comparison checks"),
+    },
+    async (args) =>
+      runImagePolicyCheck(args, { connection: options.connection }),
+  );
+
+  server.tool(
+    "anchore_image_detail",
+    "Single image analysis record (GET /v2/images/{digest}) — tags, distro, layers, status; exact fields depend on deployment. Includes sizeBytes for the JSON payload (R15).",
+    {
+      image_digest: z
+        .string()
+        .min(1)
+        .describe("Image digest, e.g. sha256:…"),
+    },
+    async (args) => runImageDetail(args, { connection: options.connection }),
   );
 
   return server;

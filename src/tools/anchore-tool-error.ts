@@ -2,6 +2,7 @@ import {
   AnchoreHttpError,
   AnchoreInvalidResponseError,
   AnchoreNetworkError,
+  AnchoreResponseTooLargeError,
   AnchoreTimeoutError,
 } from "../anchore/errors.js";
 
@@ -17,6 +18,9 @@ export function anchoreFailureMessage(err: unknown): string {
     return err.message;
   }
   if (err instanceof AnchoreInvalidResponseError) {
+    return err.message;
+  }
+  if (err instanceof AnchoreResponseTooLargeError) {
     return err.message;
   }
   if (err instanceof Error) {

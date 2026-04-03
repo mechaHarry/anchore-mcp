@@ -93,4 +93,4 @@ Image list **filtering** is limited to what the tool forwards (`fulltag`, `vulne
 
 ## Status
 
-Per [docs/plans/2026-04-02-001-feat-anchore-enterprise-mcp-plan.md](docs/plans/2026-04-02-001-feat-anchore-enterprise-mcp-plan.md): **Units 1–5 are implemented** (including env-based connection, images/vulns tools, v2 API paths). **Next is Unit 6** — SBOM and reports (read), with **R15** size metadata.
+Per [docs/plans/2026-04-02-001-feat-anchore-enterprise-mcp-plan.md](docs/plans/2026-04-02-001-feat-anchore-enterprise-mcp-plan.md): **Units 1–6 are implemented** (images, vulnerabilities, **SBOM** formats, policy check, image detail, **R15** size metadata). **Next is Unit 7** — remediation handoff tool and schema doc.

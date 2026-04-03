@@ -127,6 +127,29 @@ describe("AnchoreClient", () => {
     expect(data).toEqual({});
   });
 
+  it("getJsonWithByteLength returns byte length of UTF-8 body", async () => {
+    const json = JSON.stringify({ a: "é" });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(json, { status: 200 }),
+    );
+    const client = createAnchoreClient(connection, { fetch: fetchMock });
+    const { data, byteLength } = await client.getJsonWithByteLength<{ a: string }>(
+      "/sboms/native-json",
+    );
+    expect(data.a).toBe("é");
+    expect(byteLength).toBe(Buffer.byteLength(json, "utf8"));
+  });
+
+  it("getJsonWithByteLength rejects bodies over maxResponseBytes", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ x: "y" }), { status: 200 }),
+    );
+    const client = createAnchoreClient(connection, { fetch: fetchMock });
+    await expect(
+      client.getJsonWithByteLength("/x", { maxResponseBytes: 1 }),
+    ).rejects.toMatchObject({ name: "AnchoreResponseTooLargeError" });
+  });
+
   it("omits x-anchore-account when connection has no account", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response("{}", { status: 200 }),

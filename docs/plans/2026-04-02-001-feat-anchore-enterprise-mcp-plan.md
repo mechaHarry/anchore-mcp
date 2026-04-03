@@ -275,7 +275,7 @@ sequenceDiagram
 
 ---
 
-- [ ] **Unit 6: Tools — SBOM and reports (read)**
+- [x] **Unit 6: Tools — SBOM and reports (read)**
 
 **Goal:** **R6** — SBOM (**normal** / **SPDX** / **CycloneDX**) + named exports + sub-parts where available. **R15** size everywhere; **R8** context.
 

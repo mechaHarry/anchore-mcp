@@ -45,6 +45,20 @@ export class AnchoreNetworkError extends AnchoreError {
   }
 }
 
+/** Response body exceeded a caller-defined size bound (R15 — no silent truncation). */
+export class AnchoreResponseTooLargeError extends AnchoreError {
+  constructor(
+    readonly byteLength: number,
+    readonly maxBytes: number,
+    options?: { cause?: unknown },
+  ) {
+    super(
+      `Anchore response is ${byteLength} bytes, exceeding the configured limit of ${maxBytes} bytes. Raise max_response_bytes if appropriate, or use Anchore scheduled exports for very large reports.`,
+      options,
+    );
+  }
+}
+
 /**
  * Map HTTP status to a short operator-safe message. Does not echo response bodies
  * (they may contain internal paths or sensitive hints).

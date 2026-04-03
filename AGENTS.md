@@ -1,12 +1,13 @@
 # Agent guidance — anchore-mcp
 
-Local **stdio MCP server** for **Anchore Enterprise** (read-only: images, vulnerabilities; SBOM/reports and remediation handoff planned). One **HTTPS Anchore deployment per MCP process** — multiple backends = **multiple MCP entries** in the IDE, each with its own `env`.
+Local **stdio MCP server** for **Anchore Enterprise** (read-only: images, vulnerabilities, SBOM, policy check, image detail; remediation handoff planned). One **HTTPS Anchore deployment per MCP process** — multiple backends = **multiple MCP entries** in the IDE, each with its own `env`.
 
 ## Sources of truth
 
 - Requirements / scope: [docs/brainstorms/2026-04-02-anchore-enterprise-mcp-requirements.md](docs/brainstorms/2026-04-02-anchore-enterprise-mcp-requirements.md)
 - Implementation plan & units: [docs/plans/2026-04-02-001-feat-anchore-enterprise-mcp-plan.md](docs/plans/2026-04-02-001-feat-anchore-enterprise-mcp-plan.md)
 - API route research: [docs/research/anchore-api-notes.md](docs/research/anchore-api-notes.md)
+- Institutional fixes (searchable): [docs/solutions/](docs/solutions/) (e.g. Anchore integration learnings)
 
 ## Architecture (current)
 
@@ -17,7 +18,7 @@ Local **stdio MCP server** for **Anchore Enterprise** (read-only: images, vulner
 | `src/config/connection.ts` | `loadConnectionFromEnv()` → `ANCHORE_URL`, `ANCHORE_TOKEN`, optional `ANCHORE_ACCOUNT`, `ANCHORE_API_VERSION` (`v2` default). |
 | `src/anchore/client.ts` | `fetch` + Basic auth (`_api_key` + token), optional `x-anchore-account`. |
 | `src/anchore/api-paths.ts` | Versioned REST paths: **v2** vs **v1**. |
-| `src/tools/*` | Tools call Anchore; `formatAnchoreToolJson` for R8 + R14 textual summaries. |
+| `src/tools/*` | Tools call Anchore; `formatAnchoreToolJson` for R8 + R14; SBOM / image detail include **sizeBytes** (R15). |
 | `src/pii/*`, `src/logging/safe-log.ts` | R14 mask/warn; R13 stderr redaction / line cap. |
 
 **Lazy config:** Connection is **not** loaded at process start. Missing `ANCHORE_*` does **not** exit the process — the MCP handshake can complete (trust / probes). Env is read when a tool runs (or `anchore_connection_info`).
@@ -71,7 +72,7 @@ Unit tests inject `connection` via `createMcpServer({ connection })` / tool `opt
 
 ## Plan status (when this file was written)
 
-Units **1–5** implemented (connection, client, PII/safe logging, images + vulnerabilities tools, **v2** paths). **Unit 6+** (SBOM/reports, handoff, CI/docs) per the plan — update this section as units land.
+Units **1–6** implemented (connection, client, PII/safe logging, images/vulns, **SBOM** + policy + image detail, **v2** paths). **Unit 7+** (remediation handoff, CI/docs) per the plan — update this section as units land.
 
 ## What we learned (operational)
 
@@ -80,5 +81,6 @@ Units **1–5** implemented (connection, client, PII/safe logging, images + vuln
 3. **Avoid noisy stderr** on stdin EOF during probes — hosts may treat stderr as MCP failure.
 4. **Enterprise 5+** expects explicit **`/v2/...`**; using `/v1/images` against a v2 deployment often yields HTML or non-JSON errors.
 5. **`agent ls` / Cursor agent:** If behavior breaks **only** when this MCP block is present, treat as **host + this server interaction** (validate JSON, absolute `dist` path, restart IDE). Removed misleading README claims that `agent ls` stayed broken after removing the server — that was not observed.
+6. **Image SBOM v2 path segment:** Use **`/v2/images/{digest}/sboms/{format}`** (plural **`sboms`**). **`/sbom/`** (singular) can yield **HTTP 400**. Source-repo SBOM URLs in Anchore docs may still use singular `sbom` under `/v2/sources/...` — do not assume parity. See [docs/research/anchore-api-notes.md](docs/research/anchore-api-notes.md) and [docs/solutions/integration-issues/2026-04-02-anchore-v2-image-sbom-sboms-path.md](docs/solutions/integration-issues/2026-04-02-anchore-v2-image-sbom-sboms-path.md).
 
 When extending tools, follow existing patterns in `src/tools/`, keep Zod tool schemas, and extend `docs/research/anchore-api-notes.md` when routes change.

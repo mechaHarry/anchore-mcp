@@ -14,8 +14,14 @@ export type AnchoreToolPayload = {
   /** R14-masked textual summary (safe for chat). */
   summary: string;
   warnings: string[];
+  /** R15 — UTF-8 byte length of the Anchore HTTP response body when measured. */
+  sizeBytes?: number;
   /** Raw Anchore JSON — do not log wholesale to stderr (R13). */
   anchore: unknown;
+};
+
+export type FormatAnchoreToolJsonMeta = {
+  sizeBytes?: number;
 };
 
 /** Build the standard tool result JSON string (R8 + R14). */
@@ -23,6 +29,7 @@ export function formatAnchoreToolJson(
   ctx: ToolContextFields,
   summaryLine: string,
   anchore: unknown,
+  meta?: FormatAnchoreToolJsonMeta,
 ): string {
   const { text: summary, warnings } = prepareTextualToolText(summaryLine);
   const payload: AnchoreToolPayload = {
@@ -35,6 +42,7 @@ export function formatAnchoreToolJson(
     },
     summary,
     warnings,
+    ...(meta?.sizeBytes !== undefined ? { sizeBytes: meta.sizeBytes } : {}),
     anchore,
   };
   return JSON.stringify(payload, null, 2);

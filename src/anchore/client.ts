@@ -3,6 +3,7 @@ import {
   AnchoreHttpError,
   AnchoreInvalidResponseError,
   AnchoreNetworkError,
+  AnchoreResponseTooLargeError,
   AnchoreTimeoutError,
   userMessageForHttpStatus,
 } from "./errors.js";
@@ -12,6 +13,12 @@ export type AnchoreClientOptions = {
   fetch?: typeof fetch;
   /** Default timeout for each request (ms). No retries on timeout. */
   defaultTimeoutMs?: number;
+};
+
+export type GetJsonOptions = {
+  timeoutMs?: number;
+  /** If set, reject when the raw UTF-8 body exceeds this size (R15). */
+  maxResponseBytes?: number;
 };
 
 function joinBaseAndPath(baseUrl: string, path: string): string {
@@ -47,9 +54,21 @@ export class AnchoreClient {
   /**
    * GET JSON from Anchore. Path must include the API version (e.g. `/v2/images`).
    */
-  async getJson<T>(path: string, init?: { timeoutMs?: number }): Promise<T> {
+  async getJson<T>(path: string, init?: GetJsonOptions): Promise<T> {
+    const { data } = await this.getJsonWithByteLength<T>(path, init);
+    return data;
+  }
+
+  /**
+   * GET JSON and return UTF-8 byte length of the raw body (for R15 size metadata).
+   */
+  async getJsonWithByteLength<T>(
+    path: string,
+    init?: GetJsonOptions,
+  ): Promise<{ data: T; byteLength: number }> {
     const url = joinBaseAndPath(this.connection.baseUrl, path);
     const timeoutMs = init?.timeoutMs ?? this.defaultTimeoutMs;
+    const maxResponseBytes = init?.maxResponseBytes;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -69,11 +88,15 @@ export class AnchoreClient {
       }
 
       const text = await res.text();
+      const byteLength = Buffer.byteLength(text, "utf8");
+      if (maxResponseBytes !== undefined && byteLength > maxResponseBytes) {
+        throw new AnchoreResponseTooLargeError(byteLength, maxResponseBytes);
+      }
       if (text.length === 0) {
-        return {} as T;
+        return { data: {} as T, byteLength: 0 };
       }
       try {
-        return JSON.parse(text) as T;
+        return { data: JSON.parse(text) as T, byteLength };
       } catch (e) {
         throw new AnchoreInvalidResponseError(
           "Anchore returned a non-JSON response for this endpoint.",
@@ -81,7 +104,11 @@ export class AnchoreClient {
         );
       }
     } catch (e: unknown) {
-      if (e instanceof AnchoreHttpError) {
+      if (
+        e instanceof AnchoreHttpError ||
+        e instanceof AnchoreInvalidResponseError ||
+        e instanceof AnchoreResponseTooLargeError
+      ) {
         throw e;
       }
       if (isAbortError(e)) {
