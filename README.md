@@ -74,10 +74,11 @@ If your Cursor build only offers URL + headers and no command field, check the d
 
 ### Troubleshooting MCP startup (Cursor / agent)
 
-- **Process exits immediately (exit code 1):** On startup, `node dist/index.js` **requires** `ANCHORE_URL` and `ANCHORE_TOKEN` in the **process environment**. Cursor only injects variables listed under that server’s **`env`** object in `mcp.json` — it does **not** load your shell profile. A typo, empty string, or missing key causes the server to `console.error` and exit before the MCP handshake.
-- **`ANCHORE_URL` must be `https://...`:** `http://` is rejected at startup.
-- **Agent terminal vs MCP:** Running the server in Cursor’s **terminal** only sees variables you `export` there; that is separate from the **MCP server child process**, which only uses the **`env`** block in JSON. Fix the JSON `env` for the red/failed MCP entry.
-- **JSON syntax:** Invalid `mcp.json` (e.g. trailing commas) can prevent Cursor from loading any MCP servers — validate the file.
+- **`ANCHORE_*` at startup:** The server **no longer exits** if `ANCHORE_URL` / `ANCHORE_TOKEN` are missing. It starts so the MCP handshake can finish (including IDE trust prompts and `agent` CLI checks). Configuration is loaded when you run a tool; until then, `anchore_connection_info` returns `configured: false` and other tools return a clear configuration error.
+- **Still failing to connect:** Ensure your `mcp.json` **`env`** block lists every variable you need. Cursor does **not** load your shell profile for the MCP child process.
+- **`ANCHORE_URL` must be `https://...`:** Invalid URLs are rejected when a tool loads the connection (not at process start).
+- **Agent terminal vs MCP:** Running `node dist/index.js` in Cursor’s **terminal** only sees variables you `export` there; the **MCP server** uses only the **`env`** block in JSON.
+- **JSON syntax:** Invalid `mcp.json` (e.g. trailing commas) can prevent Cursor from loading MCP servers — validate the file.
 
 Image list **filtering** is limited to what the tool forwards (`fulltag`, `vulnerability_id`) and what your Anchore **`/v2/openapi.json`** documents for `GET /v2/images`. There is no generic substring filter in the API in many deployments; tighter server-side filters are a follow-up (extra query parameters from your OpenAPI spec).
 

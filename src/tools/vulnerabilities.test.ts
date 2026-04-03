@@ -28,9 +28,8 @@ describe("runImageVulnerabilities", () => {
     );
     const digest = "sha256:abcdef0123456789";
     const result = await runImageVulnerabilities(
-      connection,
       { image_digest: digest },
-      { fetch: fetchMock },
+      { connection, fetch: fetchMock },
     );
     expect(result.isError).not.toBe(true);
     const url = fetchMock.mock.calls[0][0] as string;
@@ -54,9 +53,8 @@ describe("runImageVulnerabilities", () => {
       new Response(JSON.stringify({ vulnerabilities: [] }), { status: 200 }),
     );
     const result = await runImageVulnerabilities(
-      connection,
       { image_digest: "sha256:x" },
-      { fetch: fetchMock },
+      { connection, fetch: fetchMock },
     );
     const text = result.content?.[0]?.type === "text" ? result.content[0].text : "";
     const parsed = JSON.parse(text) as { summary: string };
@@ -64,8 +62,7 @@ describe("runImageVulnerabilities", () => {
   });
 
   it("rejects empty digest", async () => {
-    const connection = testConnection();
-    const result = await runImageVulnerabilities(connection, { image_digest: "   " });
+    const result = await runImageVulnerabilities({ image_digest: "   " });
     expect(result.isError).toBe(true);
   });
 
@@ -75,9 +72,8 @@ describe("runImageVulnerabilities", () => {
       new Response(JSON.stringify({ vulnerabilities: [] }), { status: 200 }),
     );
     await runImageVulnerabilities(
-      connection,
       { image_digest: "sha256:abc" },
-      { fetch: fetchMock },
+      { connection, fetch: fetchMock },
     );
     const url = fetchMock.mock.calls[0][0] as string;
     expect(url).toContain("/v1/images/");

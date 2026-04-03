@@ -1,8 +1,9 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { imageVulnerabilitiesPath } from "../anchore/api-paths.js";
 import { createAnchoreClient } from "../anchore/client.js";
-import type { ResolvedAnchoreConnection } from "../config/connection.js";
+import { loadConnectionFromEnv } from "../config/connection.js";
 import { logStderrLine } from "../logging/safe-log.js";
+import type { AnchoreToolRunOptions } from "./anchore-run-options.js";
 import { anchoreFailureMessage } from "./anchore-tool-error.js";
 import type { ToolContextFields } from "./context.js";
 import { formatAnchoreToolJson } from "./format.js";
@@ -44,9 +45,8 @@ function summarizeVulnerabilities(data: unknown): string {
  * V2: GET /v2/images/{digest}/vuln/all — V1: GET /v1/images/{digest}/vulnerabilities
  */
 export async function runImageVulnerabilities(
-  connection: ResolvedAnchoreConnection,
   args: ImageVulnerabilitiesArgs,
-  options?: { fetch?: typeof fetch },
+  options?: AnchoreToolRunOptions,
 ): Promise<CallToolResult> {
   const digest = args.image_digest.trim();
   if (!digest) {
@@ -65,8 +65,33 @@ export async function runImageVulnerabilities(
     };
   }
 
+  let connection;
   try {
-    const client = createAnchoreClient(connection, options);
+    connection = options?.connection ?? loadConnectionFromEnv();
+  } catch (err) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              error: true,
+              message:
+                err instanceof Error
+                  ? err.message
+                  : "Anchore connection is not configured.",
+            },
+            null,
+            2,
+          ),
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  try {
+    const client = createAnchoreClient(connection, { fetch: options?.fetch });
     const path = imageVulnerabilitiesPath(connection.apiVersion, digest);
     const data = await client.getJson<unknown>(path);
     const ctx: ToolContextFields = {

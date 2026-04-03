@@ -26,7 +26,7 @@ describe("runListImages", () => {
         headers: { "Content-Type": "application/json" },
       }),
     );
-    const result = await runListImages(connection, {}, { fetch: fetchMock });
+    const result = await runListImages({}, { connection, fetch: fetchMock });
     expect(result.isError).not.toBe(true);
     const text = result.content?.[0]?.type === "text" ? result.content[0].text : "";
     const parsed = JSON.parse(text) as {
@@ -50,7 +50,7 @@ describe("runListImages", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ images: [] }), { status: 200 }),
     );
-    await runListImages(connection, {}, { fetch: fetchMock });
+    await runListImages({}, { connection, fetch: fetchMock });
     expect(fetchMock.mock.calls[0][0]).toBe("https://anchore.example.com/v1/images");
   });
 
@@ -61,7 +61,7 @@ describe("runListImages", () => {
         status: 200,
       }),
     );
-    const result = await runListImages(connection, {}, { fetch: fetchMock });
+    const result = await runListImages({}, { connection, fetch: fetchMock });
     const text = result.content?.[0]?.type === "text" ? result.content[0].text : "";
     const parsed = JSON.parse(text) as { summary: string };
     expect(parsed.summary).toMatch(/Found 1 image/);
@@ -75,7 +75,7 @@ describe("runListImages", () => {
         headers: { "Content-Type": "application/json" },
       }),
     );
-    const result = await runListImages(connection, {}, { fetch: fetchMock });
+    const result = await runListImages({}, { connection, fetch: fetchMock });
     const text = result.content?.[0]?.type === "text" ? result.content[0].text : "";
     const parsed = JSON.parse(text) as { summary: string };
     expect(parsed.summary).toMatch(/No images matched/i);
@@ -87,9 +87,8 @@ describe("runListImages", () => {
       new Response(JSON.stringify({ images: [] }), { status: 200 }),
     );
     await runListImages(
-      connection,
       { fulltag: "docker.io/library/nginx:latest", vulnerability_id: "CVE-2024-1" },
-      { fetch: fetchMock },
+      { connection, fetch: fetchMock },
     );
     const url = fetchMock.mock.calls[0][0] as string;
     expect(url).toContain("fulltag=");
@@ -112,6 +111,24 @@ describe("runListImages", () => {
     expect(o.warnings.length).toBeGreaterThan(0);
   });
 
+  it("fails gracefully when env is missing and no connection is injected", async () => {
+    const origUrl = process.env.ANCHORE_URL;
+    const origTok = process.env.ANCHORE_TOKEN;
+    delete process.env.ANCHORE_URL;
+    delete process.env.ANCHORE_TOKEN;
+    try {
+      const result = await runListImages({});
+      expect(result.isError).toBe(true);
+    } finally {
+      if (origUrl !== undefined) {
+        process.env.ANCHORE_URL = origUrl;
+      }
+      if (origTok !== undefined) {
+        process.env.ANCHORE_TOKEN = origTok;
+      }
+    }
+  });
+
   it("does not write large JSON to stderr on success", async () => {
     const connection = testConnection();
     const spy = vi.spyOn(process.stderr, "write");
@@ -119,7 +136,7 @@ describe("runListImages", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(huge), { status: 200 }),
     );
-    await runListImages(connection, {}, { fetch: fetchMock });
+    await runListImages({}, { connection, fetch: fetchMock });
     const written = spy.mock.calls.map((c) => String(c[0])).join("");
     expect(written).toBe("");
     spy.mockRestore();

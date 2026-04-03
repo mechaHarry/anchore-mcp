@@ -2,7 +2,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import type { ResolvedAnchoreConnection } from "../config/connection.js";
-import { getConnectionSnapshot } from "../config/connection.js";
+import {
+  getConnectionSnapshot,
+  loadConnectionFromEnv,
+} from "../config/connection.js";
 import { runListImages } from "../tools/images.js";
 import { runImageVulnerabilities } from "../tools/vulnerabilities.js";
 
@@ -14,7 +17,15 @@ export function getConnectionInfo(connection: ResolvedAnchoreConnection) {
   return getConnectionSnapshot(connection);
 }
 
-export function createMcpServer(connection: ResolvedAnchoreConnection): McpServer {
+export type CreateMcpServerOptions = {
+  /**
+   * Tests: use a fixed connection. Production omits this so env is read when each tool runs
+   * (stdio handshake and trust checks can run without ANCHORE_* set).
+   */
+  connection?: ResolvedAnchoreConnection;
+};
+
+export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer {
   const server = new McpServer({
     name: SERVER_NAME,
     version: SERVER_VERSION,
@@ -24,10 +35,27 @@ export function createMcpServer(connection: ResolvedAnchoreConnection): McpServe
     "anchore_connection_info",
     "Show the Anchore base URL and optional account for this MCP server (non-secret). One MCP process connects to one Anchore; add another MCP entry for another deployment.",
     async () => {
-      const text = JSON.stringify(getConnectionInfo(connection), null, 2);
-      return {
-        content: [{ type: "text", text }],
-      };
+      try {
+        const c = options.connection ?? loadConnectionFromEnv();
+        const text = JSON.stringify(getConnectionInfo(c), null, 2);
+        return {
+          content: [{ type: "text", text }],
+        };
+      } catch (e) {
+        const text = JSON.stringify(
+          {
+            configured: false,
+            message:
+              "Anchore is not configured yet. Set ANCHORE_URL and ANCHORE_TOKEN in this MCP server's environment (see README). Trust checks may run the server without those variables.",
+            detail: e instanceof Error ? e.message : String(e),
+          },
+          null,
+          2,
+        );
+        return {
+          content: [{ type: "text", text }],
+        };
+      }
     },
   );
 
@@ -44,7 +72,7 @@ export function createMcpServer(connection: ResolvedAnchoreConnection): McpServe
         .optional()
         .describe("When supported, filter by CVE id (e.g. CVE-2024-1234)"),
     },
-    async (args) => runListImages(connection, args),
+    async (args) => runListImages(args, { connection: options.connection }),
   );
 
   server.tool(
@@ -56,14 +84,15 @@ export function createMcpServer(connection: ResolvedAnchoreConnection): McpServe
         .min(1)
         .describe("Image digest, e.g. sha256:…"),
     },
-    async (args) => runImageVulnerabilities(connection, args),
+    async (args) =>
+      runImageVulnerabilities(args, { connection: options.connection }),
   );
 
   return server;
 }
 
-export async function main(connection: ResolvedAnchoreConnection): Promise<void> {
-  const server = createMcpServer(connection);
+export async function main(): Promise<void> {
+  const server = createMcpServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

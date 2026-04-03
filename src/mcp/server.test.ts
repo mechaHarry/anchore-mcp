@@ -23,7 +23,7 @@ describe("getConnectionInfo", () => {
 
 describe("createMcpServer", () => {
   it("creates an McpServer instance", () => {
-    const server = createMcpServer(sampleConnection);
+    const server = createMcpServer({ connection: sampleConnection });
     expect(server).toBeDefined();
     expect(server.isConnected()).toBe(false);
   });
