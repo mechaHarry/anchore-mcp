@@ -2,6 +2,8 @@
 
 MCP server for **Anchore Enterprise**: read-only CVE/image insight, SBOM and exports, and a remediation handoff bundle. See [docs/brainstorms/2026-04-02-anchore-enterprise-mcp-requirements.md](docs/brainstorms/2026-04-02-anchore-enterprise-mcp-requirements.md) and [docs/plans/2026-04-02-001-feat-anchore-enterprise-mcp-plan.md](docs/plans/2026-04-02-001-feat-anchore-enterprise-mcp-plan.md).
 
+**Compounded learnings:** working notes live in [MEMORY.md](MEMORY.md); durable, searchable write-ups live under [docs/solutions/](docs/solutions/). Rules for moving from one to the other are in [AGENTS.md](AGENTS.md#knowledge-flow).
+
 ## Prerequisites
 
 - **Node.js** 20+ (see `.nvmrc` for the version used in development).

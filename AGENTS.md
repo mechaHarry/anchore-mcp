@@ -10,6 +10,27 @@ Local **stdio MCP server** for **Anchore Enterprise** (read-only: images, vulner
 - Implementation plan & units: [docs/plans/2026-04-02-001-feat-anchore-enterprise-mcp-plan.md](docs/plans/2026-04-02-001-feat-anchore-enterprise-mcp-plan.md)
 - API route research: [docs/research/anchore-api-notes.md](docs/research/anchore-api-notes.md)
 - Institutional fixes (searchable): [docs/solutions/](docs/solutions/) (e.g. Anchore integration learnings)
+- **Staging cache (immediate learnings / preferences):** [MEMORY.md](MEMORY.md) — see [Knowledge flow](#knowledge-flow) below.
+
+## Knowledge flow
+
+This repo compounds institutional knowledge in **two layers**. Agents and humans should follow this flow so new models and contributors see a consistent story.
+
+| Layer | What it is | When to use it |
+|-------|------------|----------------|
+| **[MEMORY.md](MEMORY.md)** | Hard **staging cache**: quick notes, preferences, session decisions, pointers. | Append during work; read when starting substantive work in this repo (if the file exists / has content). |
+| **`docs/solutions/<category>/`** | **Fossilized** solution docs: verified problems, guidance, YAML frontmatter for search. | **Promote** here once a learning is stable and should outlive a single conversation. |
+
+**Rules (enforceable by convention — this section is the contract):**
+
+1. **Read [MEMORY.md](MEMORY.md) early** when doing non-trivial implementation, debugging, or integration with Anchore — it may encode preferences or recent decisions not yet reflected elsewhere.
+2. **Do not treat `MEMORY.md` as canonical** for long-term truth; prefer **`docs/solutions/`** for anything that should still be true in six months.
+3. **Fossilize** stable learnings: add a new file under the appropriate `docs/solutions/` category (see existing examples), with frontmatter aligned to the Compound `docs/solutions/` convention. The **`ce:compound`** workflow (when available) is the preferred way to generate that shape.
+4. After fossilization, **edit `MEMORY.md`** to remove or shorten promoted items so the cache stays current and does not duplicate `docs/solutions/`.
+
+**Humans:** same flow — `MEMORY.md` is allowed to be informal; **`docs/solutions/`** is what PR reviewers and search rely on.
+
+**Expanded write-up:** [docs/solutions/workflow-issues/2026-04-03-repo-knowledge-staging-and-fossilization.md](docs/solutions/workflow-issues/2026-04-03-repo-knowledge-staging-and-fossilization.md) (process, surfaces, examples).
 
 ## Architecture (current)
 
@@ -22,6 +43,7 @@ Local **stdio MCP server** for **Anchore Enterprise** (read-only: images, vulner
 | `src/anchore/api-paths.ts` | Versioned REST paths: **v2** vs **v1**. |
 | `src/tools/*` | Tools call Anchore; `formatAnchoreToolJson` for R8 + R14; SBOM / image detail / **remediation handoff** include **sizeBytes** (R15). Handoff: `remediation-handoff.ts` + [docs/remediation-handoff-schema.md](docs/remediation-handoff-schema.md). |
 | `src/pii/*`, `src/logging/safe-log.ts` | R14 mask/warn; R13 stderr redaction / line cap. |
+| [MEMORY.md](MEMORY.md) | Staging cache only — not canonical; promote stable learnings to [docs/solutions/](docs/solutions/) (see [Knowledge flow](#knowledge-flow)). |
 
 **Lazy config:** Connection is **not** loaded at process start. Missing `ANCHORE_*` does **not** exit the process — the MCP handshake can complete (trust / probes). Env is read when a tool runs (or `anchore_connection_info`).
 

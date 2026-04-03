@@ -1,0 +1,15 @@
+---
+description: Read MEMORY.md and AGENTS.md knowledge flow before substantive work; promote stable learnings to docs/solutions/
+alwaysApply: true
+---
+
+# Compounded learnings — MEMORY.md and docs/solutions
+
+Before **non-trivial** implementation, debugging, or Anchore integration work in this repo:
+
+1. **Read [MEMORY.md](MEMORY.md)** when it exists and has content — it may hold immediate preferences or session decisions.
+2. **Read [AGENTS.md](AGENTS.md) § [Knowledge flow](AGENTS.md#knowledge-flow)** — it defines the contract between staging cache and canonical docs.
+3. **Canonical long-term learnings** belong under **`docs/solutions/<category>/`** (YAML frontmatter, structured). Do not treat `MEMORY.md` alone as the durable record.
+4. When a learning is **verified** and should outlive one conversation, **fossilize** it: add or update a file under `docs/solutions/`, then **trim or remove** the promoted content from `MEMORY.md` so the cache does not duplicate `docs/solutions/`.
+
+Optional: use the Compound Engineering **`/ce:compound`** workflow when available to generate solution docs with the expected frontmatter and sections.
