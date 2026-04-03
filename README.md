@@ -72,6 +72,15 @@ Example fragment for a JSON-style MCP config:
 
 If your Cursor build only offers URL + headers and no command field, check the docs or settings for **stdio** / **local command** MCP, or use the project/user `mcp.json` file Cursor reads so you can paste the JSON above.
 
+### Troubleshooting MCP startup (Cursor / agent)
+
+- **Process exits immediately (exit code 1):** On startup, `node dist/index.js` **requires** `ANCHORE_URL` and `ANCHORE_TOKEN` in the **process environment**. Cursor only injects variables listed under that server’s **`env`** object in `mcp.json` — it does **not** load your shell profile. A typo, empty string, or missing key causes the server to `console.error` and exit before the MCP handshake.
+- **`ANCHORE_URL` must be `https://...`:** `http://` is rejected at startup.
+- **Agent terminal vs MCP:** Running the server in Cursor’s **terminal** only sees variables you `export` there; that is separate from the **MCP server child process**, which only uses the **`env`** block in JSON. Fix the JSON `env` for the red/failed MCP entry.
+- **JSON syntax:** Invalid `mcp.json` (e.g. trailing commas) can prevent Cursor from loading any MCP servers — validate the file.
+
+Image list **filtering** is limited to what the tool forwards (`fulltag`, `vulnerability_id`) and what your Anchore **`/v2/openapi.json`** documents for `GET /v2/images`. There is no generic substring filter in the API in many deployments; tighter server-side filters are a follow-up (extra query parameters from your OpenAPI spec).
+
 ## Status
 
-Implementation follows the plan units. **Unit 2** resolves a single Anchore from **`ANCHORE_URL`**, **`ANCHORE_TOKEN`**, and optional **`ANCHORE_ACCOUNT`**, and exposes `anchore_connection_info` with non-secret metadata.
+Per [docs/plans/2026-04-02-001-feat-anchore-enterprise-mcp-plan.md](docs/plans/2026-04-02-001-feat-anchore-enterprise-mcp-plan.md): **Units 1–5 are implemented** (including env-based connection, images/vulns tools, v2 API paths). **Next is Unit 6** — SBOM and reports (read), with **R15** size metadata.
