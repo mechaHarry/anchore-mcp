@@ -80,6 +80,16 @@ If your Cursor build only offers URL + headers and no command field, check the d
 - **Agent terminal vs MCP:** Running `node dist/index.js` in Cursor’s **terminal** only sees variables you `export` there; the **MCP server** uses only the **`env`** block in JSON.
 - **JSON syntax:** Invalid `mcp.json` (e.g. trailing commas) can prevent Cursor from loading MCP servers — validate the file.
 
+### MCP stdin / trust race (Cursor, `agent`, etc.)
+
+MCP over **stdio** requires the host to keep **stdin open** for the whole session. Some flows start the server **before** workspace trust finishes or **probe** the binary with a pipe that closes immediately. Then stdin hits **EOF**, the Node process exits, and you may see a hang or drop back to the shell **before** you confirm trust.
+
+Mitigations:
+
+1. **Trust the workspace first**, then enable or restart the MCP server / agent session.
+2. Use an **absolute path** to `dist/index.js` in MCP config (wrong `cwd` → wrong relative path → crash on import; check stderr for `[anchore-mcp] startup:`).
+3. If stderr shows **`stdin closed (EOF)`** right away, the host closed the pipe — retry after trust completes, or report to Cursor with logs.
+
 Image list **filtering** is limited to what the tool forwards (`fulltag`, `vulnerability_id`) and what your Anchore **`/v2/openapi.json`** documents for `GET /v2/images`. There is no generic substring filter in the API in many deployments; tighter server-side filters are a follow-up (extra query parameters from your OpenAPI spec).
 
 ## Status

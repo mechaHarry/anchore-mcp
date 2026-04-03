@@ -91,7 +91,21 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
   return server;
 }
 
+/**
+ * Stdio MCP: the host must keep stdin open for the lifetime of the session. Some clients
+ * close the pipe briefly during workspace-trust or probe flows — the process may then exit
+ * before you see a prompt. See README “MCP stdin / trust race”.
+ */
 export async function main(): Promise<void> {
+  // Paused stdin is common; without flowing mode some hosts never deliver bytes.
+  process.stdin.resume();
+
+  process.stdin.once("end", () => {
+    console.error(
+      "[anchore-mcp] stdin closed (EOF). The MCP host ended this pipe — often before initialize if trust or connection setup is still pending. Retry after trust, or verify your MCP command uses a built `dist/index.js` path.",
+    );
+  });
+
   const server = createMcpServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
