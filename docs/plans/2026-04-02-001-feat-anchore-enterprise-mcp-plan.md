@@ -1,19 +1,20 @@
 ---
-title: "feat: Anchore Enterprise MCP (read paths, profiles, remediation handoff)"
+title: "feat: Anchore Enterprise MCP (read paths, single-Anchore env config, remediation handoff)"
 type: feat
-status: active
+status: completed
 date: 2026-04-02
 origin: docs/brainstorms/2026-04-02-anchore-enterprise-mcp-requirements.md
 revised: 2026-04-02
+revision_note: Single-Anchore env config; profiles removed in favor of multiple MCP instances.
 ---
 
-# feat: Anchore Enterprise MCP (read paths, profiles, remediation handoff)
+# feat: Anchore Enterprise MCP (read paths, single-Anchore env config, remediation handoff)
 
 ## Overview
 
-Deliver a **local stdio MCP server** that connects assistants to **Anchore Enterprise** using **named profiles**, exposes **read-only** vulnerability and image correlation plus **SBOM/report retrieval**, and provides a **documented remediation handoff bundle** for downstream automation.
+Deliver a **local stdio MCP server** that connects assistants to **one Anchore Enterprise deployment per process** (URL + token + optional account via **environment variables**), exposes **read-only** vulnerability and image correlation plus **SBOM/report retrieval**, and provides a **documented remediation handoff bundle** for downstream automation. Multiple Anchore backends are modeled as **multiple MCP server entries**, each with its own env—not named profiles inside one server.
 
-**Operator model (R8):** Every tool surfaces **non-secret context** (profile name, HTTPS base URL, account name when set, intended action) in the tool result. **No** custom **preview → confirm → execute** loop in this process. **MCP elicitation** and **host IDE** safety UX own approval; document variance in `AGENTS.md` without prescribing a specific product.
+**Operator model (R8):** Every tool surfaces **non-secret context** (HTTPS base URL, account name when set, intended action) in the tool result. **No** custom **preview → confirm → execute** loop in this process. **MCP elicitation** and **host IDE** safety UX own approval; document variance in `AGENTS.md` without prescribing a specific product.
 
 **Privacy model (R13–R14):** **stderr** must use **secret/header redaction** only; **PII in IDE logs and persisted history** is **out of scope** for this server. **R14** applies only to **textual** content this MCP returns in **chat tool results** (mask + explicit warning when heuristics match). **JSON** payloads returned to the client need not be masked, provided they are **not** written to MCP operational logs. **Downloaded files** may remain **unmasked**. No `pii_ok`-style flags.
 
@@ -25,15 +26,15 @@ This plan implements **R1–R15** as defined in the origin document (see [Requir
 
 Security/AppSec and SRE users need Anchore-backed truth inside assistant workflows without ad hoc scripts. The MCP is a **read-focused integration layer** and a **remediation handoff producer**; remediation, **CI/CD orchestration**, and image rebuilds stay **external** (see origin: [docs/brainstorms/2026-04-02-anchore-enterprise-mcp-requirements.md](docs/brainstorms/2026-04-02-anchore-enterprise-mcp-requirements.md)).
 
-**R2 (scheduled / batch):** Repeatable fleet-style use is a **first-class** scenario. **Non-interactive** clients may invoke tools without human confirmation; that path is **host-dependent** (no MCP-side block). The MCP still surfaces **R8** context in every response so automation can log or assert the correct profile.
+**R2 (scheduled / batch):** Repeatable fleet-style use is a **first-class** scenario. **Non-interactive** clients may invoke tools without human confirmation; that path is **host-dependent** (no MCP-side block). The MCP still surfaces **R8** context in every response so automation can log or assert the correct Anchore endpoint.
 
 ## Success Criteria (from origin)
 
 The implementation should make these outcomes achievable (see origin § Success Criteria):
 
 - AppSec triage loop (CVE understanding → SBOM/report evidence → **remediation handoff**) **without** Anchore UI for those steps.
-- SRE/automation: **repeatable** queries per profile and **handoff payloads** for periodic review and downstream routing.
-- **Profile** switching via **default** + **override** is predictable.
+- SRE/automation: **repeatable** queries per configured Anchore and **handoff payloads** for periodic review and downstream routing.
+- **Multiple Anchore deployments:** separate MCP configurations (separate env), not in-process profile switching.
 - **R8:** Enough **non-secret context** per call; confirmation is **IDE/elicitation**, not in-server.
 - **R11:** Install, configure, and extend using **repository docs** and obvious config patterns.
 
@@ -43,8 +44,8 @@ The implementation should make these outcomes achievable (see origin § Success 
 |----|-----------------|
 | **R1** | Tool naming, descriptions, and defaults favor **Security/AppSec** triage and investigation. |
 | **R2** | Tools and outputs support **idempotent, scriptable** use; document non-interactive invocation; same **R8** context in automated calls. |
-| **R3** | Multiple **named profiles** per install; each: **HTTPS base URL**, **API token** auth per R12; optional **account name**; validate Anchore behavior when omitted. |
-| **R4** | **Active default** profile + **optional per-tool `profile` override**; clear errors for unknown profile. |
+| **R3** | **One Anchore per MCP process**; **HTTPS base URL**, **API token**, optional **account name** via env per R12; validate Anchore behavior when account omitted. |
+| **R4** | **Superseded:** no profile registry—use **multiple MCP instances** for multiple backends. |
 | **R5** | Read tools: CVE/image correlation within **Anchore Enterprise API** capabilities (exact routes deferred). |
 | **R6** | SBOM **JSON** only: modes **normal**, **SPDX**, **CycloneDX**; exports: **Policy Compliance Export**, **Vulnerability Export**, **Build Summary** (+ manifest/Dockerfile/History where API provides); **R15** size surfaced; additional read exports allowed if consistent with R12–R15. |
 | **R7** | Dedicated **remediation handoff** tool + **versioned JSON** schema doc; **no** source-repo routing claims. |
@@ -88,11 +89,11 @@ The implementation should make these outcomes achievable (see origin § Success 
 
 - **Protocol:** All MCP JSON-RPC on **stdout**; **stderr** only for logging (R13).
 
-- **Profiles:** File-based config (YAML or JSON per resolved planning note), XDG-style default path; override via env e.g. `ANCHORE_MCP_CONFIG`; tokens via env reference or gitignored secrets file.
+- **Connection:** **Environment only** for v1: `ANCHORE_URL` (required, HTTPS), `ANCHORE_TOKEN` (required), `ANCHORE_ACCOUNT` (optional). No profile YAML; multiple Anchores = multiple MCP server definitions in the host.
 
 - **Anchore client:** Thin `fetch`-based HTTPS layer; Basic auth using **`_api_key`** / token per R12; optional **Account** header or query per Anchore Enterprise docs (validate in implementation).
 
-- **Tool result shape (R8 + R14):** Structured pattern: **`context`** (profile, baseUrl, account?, action summary) + **`content`** (text and/or JSON string for chat) + optional **`warnings`** array. **Textual** segments pass through **PII** mask/warn; **JSON** segments are not duplicated to stderr. Ensures R8 visibility without a second confirmation round-trip.
+- **Tool result shape (R8 + R14):** Structured pattern: **`context`** (baseUrl, account?, action summary) + **`content`** (text and/or JSON string for chat) + optional **`warnings`** array. **Textual** segments pass through **PII** mask/warn; **JSON** segments are not duplicated to stderr. Ensures R8 visibility without a second confirmation round-trip.
 
 - **PII (R14):** Implement **textual** detection/masking in **`src/pii/`** before feature tools depend on it (see Unit 4 ordering below). **JSON-in-chat** returned as tool content **without** masking per requirements, provided implementation **never logs** full JSON bodies to stderr.
 
@@ -104,7 +105,7 @@ The implementation should make these outcomes achievable (see origin § Success 
 
 ### Resolved During Planning
 
-- **Config format:** YAML or JSON with Zod schema; YAML preferred for multi-profile readability.
+- **Config format:** Env vars validated in code (Zod for URL); no checked-in secrets.
 - **R6 scope:** SBOM modes and named exports as in origin; extra read-only exports from API discovery allowed if aligned with R12–R15.
 - **R7:** Handoff does not resolve source repos; consumers add org metadata.
 - **R8:** Context in every response; no two-phase confirm tool.
@@ -125,7 +126,7 @@ These originate from the brainstorm “Deferred to Planning” list and are sati
 
 - Map **API operations** to tools and handoff schema (Units 3–6 + research doc).
 - Map **SBOM modes and exports** to endpoints (Units 3, 5 + research doc).
-- **Profile storage** format and **account name** semantics (Unit 2 + research).
+- **Env-based connection** and **account name** semantics (Unit 2 + research).
 - **Elicitation / tool descriptions** for R8 (Unit 7 `AGENTS.md`).
 - **PII** textual vs JSON, **no JSON in stderr logs**, **warnings**, **size limits** (Units 4–6, 8).
 
@@ -137,26 +138,24 @@ These originate from the brainstorm “Deferred to Planning” list and are sati
 sequenceDiagram
   participant C as MCP client
   participant S as MCP server
-  participant P as Profile resolver
   participant A as Anchore Enterprise API
 
-  C->>S: tool call + optional profile override
-  S->>P: resolve profile (default or override)
-  P-->>S: base URL + auth binding
+  C->>S: tool call
+  Note over S: connection from ANCHORE_* env at startup
   S->>A: HTTPS REST request
   A-->>S: JSON or binary payload
   S-->>C: context + content (R8); textual segments via R14 mask/warn; JSON per R14
 ```
 
-**Profile resolution:** Tool `profile` argument wins; else **active default**; error if missing or unknown.
+**Connection:** Fixed for the process lifetime from **`ANCHORE_URL`**, **`ANCHORE_TOKEN`**, optional **`ANCHORE_ACCOUNT`**.
 
 **R2 / headless:** Same sequence without a human step; **R8** context still returned for auditability.
 
 ## Implementation Units
 
-- [ ] **Unit 1: Repository and MCP bootstrap**
+- [x] **Unit 1: Repository and MCP bootstrap**
 
-**Goal:** Runnable **stdio** MCP server, lint/tsconfig baseline, smoke tool (e.g. list profile **names** + active default) proving wiring.
+**Goal:** Runnable **stdio** MCP server, lint/tsconfig baseline, smoke tool (e.g. **`anchore_connection_info`**) proving wiring.
 
 **Requirements:** Foundation for R3–R4, R13 (stderr-only logging discipline).
 
@@ -177,31 +176,30 @@ sequenceDiagram
 
 ---
 
-- [ ] **Unit 2: Profile configuration model**
+- [x] **Unit 2: Connection configuration (environment)**
 
-**Goal:** Load **multiple profiles**, **default** + **override** resolution, credentials via **secure binding** (no secrets in git).
+**Goal:** Resolve **one Anchore** from **`ANCHORE_URL`**, **`ANCHORE_TOKEN`**, optional **`ANCHORE_ACCOUNT`** at startup; credentials only from env (no secrets in git).
 
-**Requirements:** R3, R4, R12, R13.
+**Requirements:** R3, R12, R13 (R4 N/A—multi-backend via multiple MCP instances).
 
 **Dependencies:** Unit 1.
 
 **Files:**
-- Create: `src/config/profiles.ts`, `src/config/schema.ts`, `config.example.yaml`, `src/config/profiles.test.ts`
+- Create: `src/config/connection.ts`, `src/config/connection.test.ts`, `env.example`
 - Modify: `src/index.ts`
 
 **Approach:**
-- Zod-validated config: `profiles.<name>.baseUrl`, `username` (`_api_key` for token auth), `password` from env, optional `account`; document `ANCHORE_MCP_CONFIG` (or chosen env name).
+- Validate HTTPS URL with Zod; require token; optional account; document env names in README.
 
 **Test scenarios:**
-- **Happy path:** Multiple profiles; override selects non-default.
-- **Edge case:** Unknown profile → clear tool-level error.
-- **Error path:** Missing credential env → message without printing secret values.
+- **Happy path:** All required env set; URL normalized (trailing slash).
+- **Error path:** Missing URL or token → clear message without secret values.
 
-**Verification:** Unit tests cover resolution matrix.
+**Verification:** Unit tests cover validation.
 
 ---
 
-- [ ] **Unit 3: Anchore HTTP client**
+- [x] **Unit 3: Anchore HTTP client**
 
 **Goal:** Shared HTTPS client: timeouts, auth header construction, status mapping, **no sensitive data on stderr** (raw bodies).
 
@@ -224,7 +222,7 @@ sequenceDiagram
 
 ---
 
-- [ ] **Unit 4: PII text handling + safe logging primitives**
+- [x] **Unit 4: PII text handling + safe logging primitives**
 
 **Goal:** Centralize **R14** (**textual** mask + warning) and **R13** (**stderr** secret redaction). **Do not** log full JSON tool payloads to stderr. Downstream tools **compose** context + content through these helpers.
 
@@ -250,7 +248,7 @@ sequenceDiagram
 
 ---
 
-- [ ] **Unit 5: Tools — vulnerabilities and images (read)**
+- [x] **Unit 5: Tools — vulnerabilities and images (read)**
 
 **Goal:** **R5** tools — CVE query by image/artifact; list/search images by vulnerability criteria per API support.
 
@@ -277,7 +275,7 @@ sequenceDiagram
 
 ---
 
-- [ ] **Unit 6: Tools — SBOM and reports (read)**
+- [x] **Unit 6: Tools — SBOM and reports (read)**
 
 **Goal:** **R6** — SBOM (**normal** / **SPDX** / **CycloneDX**) + named exports + sub-parts where available. **R15** size everywhere; **R8** context.
 
@@ -302,7 +300,7 @@ sequenceDiagram
 
 ---
 
-- [ ] **Unit 7: Remediation handoff tool and schema documentation**
+- [x] **Unit 7: Remediation handoff tool and schema documentation**
 
 **Goal:** **R7** + **R11** — dedicated handoff tool, **versioned JSON**, `docs/remediation-handoff-schema.md`.
 
@@ -315,7 +313,7 @@ sequenceDiagram
 - Modify: `AGENTS.md` (link to schema)
 
 **Approach:**
-- Fields: profile, base URL (non-secret), image IDs, vuln/package evidence, fix hints from Anchore; **handoffVersion**; **no** mandatory repo fields.
+- Fields: base URL (non-secret), image IDs, vuln/package evidence, fix hints from Anchore; **handoffVersion**; **no** mandatory repo fields.
 - **R14:** Textual adjuncts masked; JSON body policy same as other tools.
 
 **Test scenarios:**
@@ -326,7 +324,7 @@ sequenceDiagram
 
 ---
 
-- [ ] **Unit 8: Documentation, CI, and quality gate**
+- [x] **Unit 8: Documentation, CI, and quality gate**
 
 **Goal:** **R11** complete README + `AGENTS.md`; **npm scripts** `lint`, `typecheck`, `test`; optional `.github/workflows/ci.yml`; final pass that **R13** redaction and **R14** “no JSON on stderr” invariants hold across tools.
 
@@ -349,7 +347,7 @@ sequenceDiagram
 
 ## System-Wide Impact
 
-- **Interaction graph:** **Profile resolver** → **Anchore client** → tool handler → **R8** context + **R14** on **textual** segments → MCP response. Handoff tool may call client multiple times.
+- **Interaction graph:** **Env-loaded connection** → **Anchore client** → tool handler → **R8** context + **R14** on **textual** segments → MCP response. Handoff tool may call client multiple times.
 - **Error propagation:** User-facing errors short and non-leaking; optional `details` only when safe.
 - **State:** No server-side cache in v1 unless justified later.
 - **Invariants:** **stdout** = MCP only; **stderr** = logs with **R13** redaction; **R14** JSON not duplicated on stderr.
