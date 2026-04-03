@@ -1,7 +1,7 @@
 {
   "name": "anchore-mcp",
   "version": "0.1.0",
-  "description": "MCP server for Anchore Enterprise (read paths, profiles, remediation handoff)",
+  "description": "MCP server for Anchore Enterprise (read paths, remediation handoff)",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -17,7 +17,6 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.0",
-    "yaml": "^2.7.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {

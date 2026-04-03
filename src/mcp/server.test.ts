@@ -1,22 +1,27 @@
 import { describe, it, expect } from "vitest";
-import { ProfileRegistry } from "../config/profiles.js";
-import { createMcpServer, getProfilesSnapshot } from "./server.js";
+import type { ResolvedAnchoreConnection } from "../config/connection.js";
+import { createMcpServer, getConnectionInfo } from "./server.js";
 
-const emptyRegistry = new ProfileRegistry({ profiles: {} }, "/tmp/x.yaml", false);
+const sampleConnection: ResolvedAnchoreConnection = {
+  baseUrl: "https://anchore.example.com",
+  username: "_api_key",
+  password: "secret",
+  account: "myacct",
+};
 
-describe("getProfilesSnapshot", () => {
-  it("returns empty profiles when no config file", () => {
-    const snap = getProfilesSnapshot(emptyRegistry);
-    expect(snap.profiles).toEqual([]);
-    expect(snap.defaultProfile).toBeNull();
-    expect(snap.configFilePresent).toBe(false);
-    expect(snap.note).toMatch(/No config file/);
+describe("getConnectionInfo", () => {
+  it("returns non-secret fields only", () => {
+    const info = getConnectionInfo(sampleConnection);
+    expect(info).toEqual({
+      baseUrl: "https://anchore.example.com",
+      account: "myacct",
+    });
   });
 });
 
 describe("createMcpServer", () => {
   it("creates an McpServer instance", () => {
-    const server = createMcpServer(emptyRegistry);
+    const server = createMcpServer(sampleConnection);
     expect(server).toBeDefined();
     expect(server.isConnected()).toBe(false);
   });

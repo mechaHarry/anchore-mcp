@@ -1,4 +1,4 @@
-import type { ResolvedProfile } from "../config/profiles.js";
+import type { ResolvedAnchoreConnection } from "../config/connection.js";
 import {
   AnchoreHttpError,
   AnchoreInvalidResponseError,
@@ -20,14 +20,14 @@ function joinBaseAndPath(baseUrl: string, path: string): string {
   return `${base}${p}`;
 }
 
-function buildAuthHeaders(profile: ResolvedProfile): Headers {
+function buildAuthHeaders(conn: ResolvedAnchoreConnection): Headers {
   const headers = new Headers();
-  const token = `${profile.username}:${profile.password}`;
+  const token = `${conn.username}:${conn.password}`;
   const basic = Buffer.from(token, "utf8").toString("base64");
   headers.set("Authorization", `Basic ${basic}`);
   headers.set("Accept", "application/json");
-  if (profile.account) {
-    headers.set("x-anchore-account", profile.account);
+  if (conn.account) {
+    headers.set("x-anchore-account", conn.account);
   }
   return headers;
 }
@@ -37,7 +37,7 @@ export class AnchoreClient {
   private readonly defaultTimeoutMs: number;
 
   constructor(
-    private readonly profile: ResolvedProfile,
+    private readonly connection: ResolvedAnchoreConnection,
     options: AnchoreClientOptions = {},
   ) {
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
@@ -45,15 +45,15 @@ export class AnchoreClient {
   }
 
   /**
-   * GET JSON from Anchore. Path is relative to the profile base URL (e.g. `/v1/images`).
+   * GET JSON from Anchore. Path is relative to the base URL (e.g. `/v1/images`).
    */
   async getJson<T>(path: string, init?: { timeoutMs?: number }): Promise<T> {
-    const url = joinBaseAndPath(this.profile.baseUrl, path);
+    const url = joinBaseAndPath(this.connection.baseUrl, path);
     const timeoutMs = init?.timeoutMs ?? this.defaultTimeoutMs;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-    const headers = buildAuthHeaders(this.profile);
+    const headers = buildAuthHeaders(this.connection);
 
     try {
       const res = await this.fetchImpl(url, {
@@ -109,8 +109,8 @@ function isAbortError(e: unknown): boolean {
 }
 
 export function createAnchoreClient(
-  profile: ResolvedProfile,
+  connection: ResolvedAnchoreConnection,
   options?: AnchoreClientOptions,
 ): AnchoreClient {
-  return new AnchoreClient(profile, options);
+  return new AnchoreClient(connection, options);
 }

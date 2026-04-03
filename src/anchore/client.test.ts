@@ -6,12 +6,10 @@ import {
   AnchoreNetworkError,
 } from "./errors.js";
 
-const profile = {
-  profileName: "prod",
+const connection = {
   baseUrl: "https://anchore.example.com",
   username: "_api_key" as const,
   password: "SUPER_SECRET_TOKEN",
-  passwordEnv: "ANCHORE_TOKEN",
   account: "test-account",
 };
 
@@ -31,7 +29,7 @@ describe("AnchoreClient", () => {
         headers: { "Content-Type": "application/json" },
       }),
     );
-    const client = createAnchoreClient(profile, { fetch: fetchMock });
+    const client = createAnchoreClient(connection, { fetch: fetchMock });
     const data = await client.getJson<{ images: unknown[] }>("/v1/images");
     expect(data.images).toEqual([]);
 
@@ -51,7 +49,7 @@ describe("AnchoreClient", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue(new Response("", { status: 401 }));
-    const client = createAnchoreClient(profile, { fetch: fetchMock });
+    const client = createAnchoreClient(connection, { fetch: fetchMock });
     try {
       await client.getJson("/v1/images");
       expect.fail("expected throw");
@@ -69,7 +67,7 @@ describe("AnchoreClient", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue(new Response("", { status: 403 }));
-    const client = createAnchoreClient(profile, { fetch: fetchMock });
+    const client = createAnchoreClient(connection, { fetch: fetchMock });
     await expect(client.getJson("/x")).rejects.toMatchObject({
       status: 403,
       userMessage: expect.stringMatching(/denied/i),
@@ -87,7 +85,7 @@ describe("AnchoreClient", () => {
         });
       },
     );
-    const client = createAnchoreClient(profile, {
+    const client = createAnchoreClient(connection, {
       fetch: fetchMock,
       defaultTimeoutMs: 100,
     });
@@ -105,7 +103,7 @@ describe("AnchoreClient", () => {
     const fetchMock = vi
       .fn()
       .mockRejectedValue(new TypeError("fetch failed"));
-    const client = createAnchoreClient(profile, { fetch: fetchMock });
+    const client = createAnchoreClient(connection, { fetch: fetchMock });
     await expect(client.getJson("/v1/images")).rejects.toBeInstanceOf(
       AnchoreNetworkError,
     );
@@ -115,7 +113,7 @@ describe("AnchoreClient", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue(new Response("not-json", { status: 200 }));
-    const client = createAnchoreClient(profile, { fetch: fetchMock });
+    const client = createAnchoreClient(connection, { fetch: fetchMock });
     await expect(client.getJson("/x")).rejects.toBeInstanceOf(
       AnchoreInvalidResponseError,
     );
@@ -123,22 +121,20 @@ describe("AnchoreClient", () => {
 
   it("empty 200 body yields empty object", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("", { status: 200 }));
-    const client = createAnchoreClient(profile, { fetch: fetchMock });
+    const client = createAnchoreClient(connection, { fetch: fetchMock });
     const data = await client.getJson<Record<string, never>>("/x");
     expect(data).toEqual({});
   });
 
-  it("omits x-anchore-account when profile has no account", async () => {
+  it("omits x-anchore-account when connection has no account", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response("{}", { status: 200 }),
     );
     const client = createAnchoreClient(
       {
-        profileName: "prod",
         baseUrl: "https://anchore.example.com",
         username: "_api_key",
         password: "SUPER_SECRET_TOKEN",
-        passwordEnv: "ANCHORE_TOKEN",
       },
       { fetch: fetchMock },
     );

@@ -4,7 +4,6 @@
  */
 
 export type ToolContextFields = {
-  profileName: string;
   baseUrl: string;
   /** Anchore account name when scoped. */
   account?: string;
@@ -15,5 +14,5 @@ export type ToolContextFields = {
 /** Single-line summary for embedding in text or structured `context` fields. */
 export function toolContextSummary(ctx: ToolContextFields): string {
   const acct = ctx.account ? ` | account: ${ctx.account}` : "";
-  return `${ctx.profileName} @ ${ctx.baseUrl}${acct} — ${ctx.action}`;
+  return `${ctx.baseUrl}${acct} — ${ctx.action}`;
 }

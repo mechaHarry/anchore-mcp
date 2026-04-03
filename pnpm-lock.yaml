@@ -11,9 +11,6 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.17.0
         version: 1.29.0(zod@3.25.76)
-      yaml:
-        specifier: ^2.7.0
-        version: 2.8.3
       zod:
         specifier: ^3.24.0
         version: 3.25.76
@@ -1759,7 +1756,8 @@ snapshots:
 
   wrappy@1.0.2: {}
 
-  yaml@2.8.3: {}
+  yaml@2.8.3:
+    optional: true
 
   zod-to-json-schema@3.25.2(zod@3.25.76):
     dependencies:

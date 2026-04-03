@@ -1,6 +1,6 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createAnchoreClient } from "../anchore/client.js";
-import type { ProfileRegistry } from "../config/profiles.js";
+import type { ResolvedAnchoreConnection } from "../config/connection.js";
 import { logStderrLine } from "../logging/safe-log.js";
 import { anchoreFailureMessage } from "./anchore-tool-error.js";
 import type { ToolContextFields } from "./context.js";
@@ -9,7 +9,6 @@ import { formatAnchoreToolJson } from "./format.js";
 export type ImageVulnerabilitiesArgs = {
   /** Image digest, e.g. sha256:… */
   image_digest: string;
-  profile?: string;
 };
 
 function summarizeVulnerabilities(data: unknown): string {
@@ -36,7 +35,7 @@ function summarizeVulnerabilities(data: unknown): string {
  * GET /v1/images/{imageDigest}/vulnerabilities
  */
 export async function runImageVulnerabilities(
-  registry: ProfileRegistry,
+  connection: ResolvedAnchoreConnection,
   args: ImageVulnerabilitiesArgs,
   options?: { fetch?: typeof fetch },
 ): Promise<CallToolResult> {
@@ -58,15 +57,13 @@ export async function runImageVulnerabilities(
   }
 
   try {
-    const profile = registry.resolve(args.profile);
-    const client = createAnchoreClient(profile, options);
+    const client = createAnchoreClient(connection, options);
     const encoded = encodeURIComponent(digest);
     const path = `/v1/images/${encoded}/vulnerabilities`;
     const data = await client.getJson<unknown>(path);
     const ctx: ToolContextFields = {
-      profileName: profile.profileName,
-      baseUrl: profile.baseUrl,
-      account: profile.account,
+      baseUrl: connection.baseUrl,
+      account: connection.account,
       action: "image vulnerabilities",
     };
     const summaryLine = summarizeVulnerabilities(data);

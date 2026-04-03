@@ -1,14 +1,12 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createAnchoreClient } from "../anchore/client.js";
-import type { ProfileRegistry } from "../config/profiles.js";
+import type { ResolvedAnchoreConnection } from "../config/connection.js";
 import { logStderrLine } from "../logging/safe-log.js";
 import { anchoreFailureMessage } from "./anchore-tool-error.js";
 import type { ToolContextFields } from "./context.js";
 import { formatAnchoreToolJson } from "./format.js";
 
 export type ListImagesArgs = {
-  /** Profile name; defaults to config `defaultProfile`. */
-  profile?: string;
   /** If supported by your Anchore build, filter by full image tag. */
   fulltag?: string;
   /** If supported, filter by CVE id (e.g. CVE-2024-1234). */
@@ -39,13 +37,12 @@ function summarizeImages(data: unknown): string {
  * GET /v1/images with optional query parameters (support varies by version — see deployment Swagger).
  */
 export async function runListImages(
-  registry: ProfileRegistry,
+  connection: ResolvedAnchoreConnection,
   args: ListImagesArgs,
   options?: { fetch?: typeof fetch },
 ): Promise<CallToolResult> {
   try {
-    const profile = registry.resolve(args.profile);
-    const client = createAnchoreClient(profile, options);
+    const client = createAnchoreClient(connection, options);
     const params = new URLSearchParams();
     if (args.fulltag) {
       params.set("fulltag", args.fulltag);
@@ -57,9 +54,8 @@ export async function runListImages(
     const path = qs ? `/v1/images?${qs}` : "/v1/images";
     const data = await client.getJson<unknown>(path);
     const ctx: ToolContextFields = {
-      profileName: profile.profileName,
-      baseUrl: profile.baseUrl,
-      account: profile.account,
+      baseUrl: connection.baseUrl,
+      account: connection.account,
       action: "list images",
     };
     const summaryLine = summarizeImages(data);

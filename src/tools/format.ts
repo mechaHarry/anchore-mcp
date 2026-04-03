@@ -3,7 +3,6 @@ import { toolContextSummary, type ToolContextFields } from "./context.js";
 
 export type AnchoreToolPayload = {
   context: {
-    profileName: string;
     baseUrl: string;
     account?: string;
     action: string;
@@ -26,7 +25,6 @@ export function formatAnchoreToolJson(
   const { text: summary, warnings } = prepareTextualToolText(summaryLine);
   const payload: AnchoreToolPayload = {
     context: {
-      profileName: ctx.profileName,
       baseUrl: ctx.baseUrl,
       ...(ctx.account !== undefined ? { account: ctx.account } : {}),
       action: ctx.action,

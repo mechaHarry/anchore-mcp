@@ -1,35 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ProfileRegistry } from "../config/profiles.js";
+import type { ResolvedAnchoreConnection } from "../config/connection.js";
 import { runImageVulnerabilities } from "./vulnerabilities.js";
 
-const ENV_KEY = "ANCHORE_MCP_UNIT_TOKEN_V";
-
-function testRegistry(): ProfileRegistry {
-  process.env[ENV_KEY] = "test-token";
-  return new ProfileRegistry(
-    {
-      defaultProfile: "prod",
-      profiles: {
-        prod: {
-          baseUrl: "https://anchore.example.com",
-          username: "_api_key",
-          passwordEnv: ENV_KEY,
-        },
-      },
-    },
-    "/tmp/anchore-mcp-unit.yaml",
-    true,
-  );
+function testConnection(): ResolvedAnchoreConnection {
+  return {
+    baseUrl: "https://anchore.example.com",
+    username: "_api_key",
+    password: "test-token",
+  };
 }
 
 afterEach(() => {
   vi.restoreAllMocks();
-  delete process.env[ENV_KEY];
 });
 
 describe("runImageVulnerabilities", () => {
   it("fetches vulnerabilities by encoded digest", async () => {
-    const registry = testRegistry();
+    const connection = testConnection();
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -40,7 +27,7 @@ describe("runImageVulnerabilities", () => {
     );
     const digest = "sha256:abcdef0123456789";
     const result = await runImageVulnerabilities(
-      registry,
+      connection,
       { image_digest: digest },
       { fetch: fetchMock },
     );
@@ -50,22 +37,22 @@ describe("runImageVulnerabilities", () => {
     expect(url).toContain("/vulnerabilities");
     const text = result.content?.[0]?.type === "text" ? result.content[0].text : "";
     const parsed = JSON.parse(text) as {
-      context: { profileName: string };
+      context: { baseUrl: string };
       summary: string;
       anchore: { vulnerabilities: unknown[] };
     };
-    expect(parsed.context.profileName).toBe("prod");
+    expect(parsed.context.baseUrl).toBe("https://anchore.example.com");
     expect(parsed.summary).toMatch(/vulnerability record/);
     expect(parsed.anchore.vulnerabilities).toHaveLength(1);
   });
 
   it("returns explicit empty summary when no CVEs", async () => {
-    const registry = testRegistry();
+    const connection = testConnection();
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ vulnerabilities: [] }), { status: 200 }),
     );
     const result = await runImageVulnerabilities(
-      registry,
+      connection,
       { image_digest: "sha256:x" },
       { fetch: fetchMock },
     );
@@ -75,8 +62,8 @@ describe("runImageVulnerabilities", () => {
   });
 
   it("rejects empty digest", async () => {
-    const registry = testRegistry();
-    const result = await runImageVulnerabilities(registry, { image_digest: "   " });
+    const connection = testConnection();
+    const result = await runImageVulnerabilities(connection, { image_digest: "   " });
     expect(result.isError).toBe(true);
   });
 });

@@ -1,52 +1,38 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ProfileRegistry } from "../config/profiles.js";
+import type { ResolvedAnchoreConnection } from "../config/connection.js";
 import { formatAnchoreToolJson } from "./format.js";
 import { runListImages } from "./images.js";
 
-const ENV_KEY = "ANCHORE_MCP_UNIT_TOKEN";
-
-function testRegistry(): ProfileRegistry {
-  process.env[ENV_KEY] = "test-token-value";
-  return new ProfileRegistry(
-    {
-      defaultProfile: "prod",
-      profiles: {
-        prod: {
-          baseUrl: "https://anchore.example.com",
-          username: "_api_key",
-          passwordEnv: ENV_KEY,
-          account: "acct1",
-        },
-      },
-    },
-    "/tmp/anchore-mcp-unit.yaml",
-    true,
-  );
+function testConnection(): ResolvedAnchoreConnection {
+  return {
+    baseUrl: "https://anchore.example.com",
+    username: "_api_key",
+    password: "test-token-value",
+    account: "acct1",
+  };
 }
 
 afterEach(() => {
   vi.restoreAllMocks();
-  delete process.env[ENV_KEY];
 });
 
 describe("runListImages", () => {
   it("returns context, summary, and anchore payload on success", async () => {
-    const registry = testRegistry();
+    const connection = testConnection();
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ images: [{ imageDigest: "sha256:abc" }] }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }),
     );
-    const result = await runListImages(registry, {}, { fetch: fetchMock });
+    const result = await runListImages(connection, {}, { fetch: fetchMock });
     expect(result.isError).not.toBe(true);
     const text = result.content?.[0]?.type === "text" ? result.content[0].text : "";
     const parsed = JSON.parse(text) as {
-      context: { profileName: string; baseUrl: string; account?: string };
+      context: { baseUrl: string; account?: string };
       summary: string;
       anchore: { images: unknown[] };
     };
-    expect(parsed.context.profileName).toBe("prod");
     expect(parsed.context.baseUrl).toBe("https://anchore.example.com");
     expect(parsed.context.account).toBe("acct1");
     expect(parsed.summary).toMatch(/1 image/);
@@ -58,26 +44,26 @@ describe("runListImages", () => {
   });
 
   it("uses empty-result messaging", async () => {
-    const registry = testRegistry();
+    const connection = testConnection();
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ images: [] }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }),
     );
-    const result = await runListImages(registry, {}, { fetch: fetchMock });
+    const result = await runListImages(connection, {}, { fetch: fetchMock });
     const text = result.content?.[0]?.type === "text" ? result.content[0].text : "";
     const parsed = JSON.parse(text) as { summary: string };
     expect(parsed.summary).toMatch(/No images matched/i);
   });
 
   it("appends query parameters when provided", async () => {
-    const registry = testRegistry();
+    const connection = testConnection();
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ images: [] }), { status: 200 }),
     );
     await runListImages(
-      registry,
+      connection,
       { fulltag: "docker.io/library/nginx:latest", vulnerability_id: "CVE-2024-1" },
       { fetch: fetchMock },
     );
@@ -89,7 +75,6 @@ describe("runListImages", () => {
   it("R14: formatAnchoreToolJson masks email in summary line", () => {
     const json = formatAnchoreToolJson(
       {
-        profileName: "prod",
         baseUrl: "https://anchore.enterprise.local",
         action: "list images",
       },
@@ -103,13 +88,13 @@ describe("runListImages", () => {
   });
 
   it("does not write large JSON to stderr on success", async () => {
-    const registry = testRegistry();
+    const connection = testConnection();
     const spy = vi.spyOn(process.stderr, "write");
     const huge = { images: [{ detail: "x".repeat(30_000) }] };
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(huge), { status: 200 }),
     );
-    await runListImages(registry, {}, { fetch: fetchMock });
+    await runListImages(connection, {}, { fetch: fetchMock });
     const written = spy.mock.calls.map((c) => String(c[0])).join("");
     expect(written).toBe("");
     spy.mockRestore();
