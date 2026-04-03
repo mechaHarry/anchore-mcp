@@ -1,30 +1,38 @@
 # Anchore Enterprise API (research notes)
 
-Used to pick routes for the MCP tools. **Confirm against your deployment’s Swagger** (`/v1/swagger.json` or `/swagger.json` per install).
+**Anchore Enterprise 5+** uses an explicit **`/v2/...`** path prefix. Unversioned or wrong-version paths may return **404** or **non-JSON** (HTML error pages), which breaks clients that expect JSON.
+
+## OpenAPI on your deployment
+
+Use the spec served by your Anchore API host, for example:
+
+`GET https://<anchore-host>/v2/openapi.json`
+
+That file is the source of truth for paths, query parameters, and response shapes.
 
 ## Auth
 
-- **Basic** over HTTPS: username often `_api_key` with password = static API token (or user/password per policy).
+- **Basic** over HTTPS: username `_api_key` with password = API token (or per your org’s policy).
 - **Account header**: `x-anchore-account: <account_name>` when using account-scoped resources.
 
-## Candidate endpoints (typical v1)
+## V2 (default in this MCP)
 
 | Area | Method + path | Notes |
 |------|----------------|-------|
-| Health | `GET /health` | Liveness; no auth in many installs |
-| System | `GET /v1/system` | Version/status |
-| Images | `GET /v1/images` | List images (query params for filters) |
-| Image | `GET /v1/images/{imageDigest}` | Single image by digest |
-| Image vulns | `GET /v1/images/{imageDigest}/vulnerabilities` | CVE list for image |
-| Image policy | `GET /v1/images/{imageDigest}/check` or policy eval endpoints | Policy status (confirm path) |
-| Policies | `GET /v1/policies` | List policies |
-| Policy bundles | `GET /v1/policies/{policyId}` | Detail |
-| Feeds / sync | `GET /v1/system/feeds` | Feed sync status |
-| Registry creds | `GET /v1/credentials` | If exposed (sensitive; tools must redact) |
+| Images | `GET /v2/images` | List images; large lists may use an `items` array wrapper |
+| Image vulns | `GET /v2/images/{image_digest}/vuln/all` | Vulnerability type `all`; see OpenAPI for other `vuln/{type}` routes |
 
-Exact paths may differ by **Anchore Enterprise** minor version; validate before implementing tools.
+## V1 (legacy)
+
+Set environment variable `ANCHORE_API_VERSION=v1` if you must talk to older behavior. Example paths:
+
+| Area | Method + path |
+|------|----------------|
+| Images | `GET /v1/images` |
+| Image vulns | `GET /v1/images/{imageDigest}/vulnerabilities` |
 
 ## References
 
-- [Anchore Enterprise API](https://docs.anchore.com/) — official docs
-- Deployment Swagger URL — source of truth for path/query/body
+- [Migrating from API V1 to V2](https://docs.anchore.com/5.8/docs/api/v2/v1_migration/)
+- [Anchore Enterprise API](https://docs.anchore.com/)
+- Deployment **`/v2/openapi.json`** — source of truth for path/query/body

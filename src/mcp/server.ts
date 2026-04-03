@@ -33,7 +33,7 @@ export function createMcpServer(connection: ResolvedAnchoreConnection): McpServe
 
   server.tool(
     "anchore_list_images",
-    "List analyzed images from Anchore (GET /v1/images). Optional query filters depend on your Anchore version — confirm parameters in your deployment Swagger.",
+    "List analyzed images (default GET /v2/images; set ANCHORE_API_VERSION=v1 for legacy /v1/images). Optional query filters depend on your Anchore build — see your deployment /v2/openapi.json.",
     {
       fulltag: z
         .string()
@@ -49,7 +49,7 @@ export function createMcpServer(connection: ResolvedAnchoreConnection): McpServe
 
   server.tool(
     "anchore_image_vulnerabilities",
-    "List vulnerabilities for an analyzed image by digest (GET /v1/images/{image_digest}/vulnerabilities).",
+    "List vulnerabilities for an image digest (default GET /v2/images/{digest}/vuln/all; v1 uses .../vulnerabilities). Set ANCHORE_API_VERSION if needed.",
     {
       image_digest: z
         .string()

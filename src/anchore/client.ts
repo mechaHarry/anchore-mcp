@@ -45,7 +45,7 @@ export class AnchoreClient {
   }
 
   /**
-   * GET JSON from Anchore. Path is relative to the base URL (e.g. `/v1/images`).
+   * GET JSON from Anchore. Path must include the API version (e.g. `/v2/images`).
    */
   async getJson<T>(path: string, init?: { timeoutMs?: number }): Promise<T> {
     const url = joinBaseAndPath(this.connection.baseUrl, path);

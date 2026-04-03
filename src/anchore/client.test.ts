@@ -11,6 +11,7 @@ const connection = {
   username: "_api_key" as const,
   password: "SUPER_SECRET_TOKEN",
   account: "test-account",
+  apiVersion: "v2" as const,
 };
 
 describe("AnchoreClient", () => {
@@ -135,6 +136,7 @@ describe("AnchoreClient", () => {
         baseUrl: "https://anchore.example.com",
         username: "_api_key",
         password: "SUPER_SECRET_TOKEN",
+        apiVersion: "v2",
       },
       { fetch: fetchMock },
     );

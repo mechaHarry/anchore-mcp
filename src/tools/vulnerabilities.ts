@@ -1,4 +1,5 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { imageVulnerabilitiesPath } from "../anchore/api-paths.js";
 import { createAnchoreClient } from "../anchore/client.js";
 import type { ResolvedAnchoreConnection } from "../config/connection.js";
 import { logStderrLine } from "../logging/safe-log.js";
@@ -11,28 +12,36 @@ export type ImageVulnerabilitiesArgs = {
   image_digest: string;
 };
 
+function countVulnerabilityRecords(data: unknown): number | null {
+  if (data !== null && typeof data === "object") {
+    if (
+      "vulnerabilities" in data &&
+      Array.isArray((data as { vulnerabilities: unknown }).vulnerabilities)
+    ) {
+      return (data as { vulnerabilities: unknown[] }).vulnerabilities.length;
+    }
+    if ("items" in data && Array.isArray((data as { items: unknown }).items)) {
+      return (data as { items: unknown[] }).items.length;
+    }
+  }
+  if (Array.isArray(data)) {
+    return data.length;
+  }
+  return null;
+}
+
 function summarizeVulnerabilities(data: unknown): string {
-  if (
-    data !== null &&
-    typeof data === "object" &&
-    "vulnerabilities" in data &&
-    Array.isArray((data as { vulnerabilities: unknown }).vulnerabilities)
-  ) {
-    const n = (data as { vulnerabilities: unknown[] }).vulnerabilities.length;
+  const n = countVulnerabilityRecords(data);
+  if (n !== null) {
     return n === 0
       ? "No vulnerabilities reported for this image."
       : `Found ${n} vulnerability record(s) for this image.`;
-  }
-  if (Array.isArray(data)) {
-    return data.length === 0
-      ? "No vulnerabilities reported for this image."
-      : `Found ${data.length} vulnerability record(s) for this image.`;
   }
   return "Vulnerability data retrieved from Anchore.";
 }
 
 /**
- * GET /v1/images/{imageDigest}/vulnerabilities
+ * V2: GET /v2/images/{digest}/vuln/all — V1: GET /v1/images/{digest}/vulnerabilities
  */
 export async function runImageVulnerabilities(
   connection: ResolvedAnchoreConnection,
@@ -58,12 +67,12 @@ export async function runImageVulnerabilities(
 
   try {
     const client = createAnchoreClient(connection, options);
-    const encoded = encodeURIComponent(digest);
-    const path = `/v1/images/${encoded}/vulnerabilities`;
+    const path = imageVulnerabilitiesPath(connection.apiVersion, digest);
     const data = await client.getJson<unknown>(path);
     const ctx: ToolContextFields = {
       baseUrl: connection.baseUrl,
       account: connection.account,
+      apiVersion: connection.apiVersion,
       action: "image vulnerabilities",
     };
     const summaryLine = summarizeVulnerabilities(data);

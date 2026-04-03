@@ -5,7 +5,11 @@ import {
 } from "./connection.js";
 
 function restoreEnv(
-  key: "ANCHORE_URL" | "ANCHORE_TOKEN" | "ANCHORE_ACCOUNT",
+  key:
+    | "ANCHORE_URL"
+    | "ANCHORE_TOKEN"
+    | "ANCHORE_ACCOUNT"
+    | "ANCHORE_API_VERSION",
   value: string | undefined,
 ) {
   if (value === undefined) {
@@ -19,20 +23,24 @@ describe("loadConnectionFromEnv", () => {
   let origUrl: string | undefined;
   let origToken: string | undefined;
   let origAcct: string | undefined;
+  let origVer: string | undefined;
 
   beforeEach(() => {
     origUrl = process.env.ANCHORE_URL;
     origToken = process.env.ANCHORE_TOKEN;
     origAcct = process.env.ANCHORE_ACCOUNT;
+    origVer = process.env.ANCHORE_API_VERSION;
     delete process.env.ANCHORE_URL;
     delete process.env.ANCHORE_TOKEN;
     delete process.env.ANCHORE_ACCOUNT;
+    delete process.env.ANCHORE_API_VERSION;
   });
 
   afterEach(() => {
     restoreEnv("ANCHORE_URL", origUrl);
     restoreEnv("ANCHORE_TOKEN", origToken);
     restoreEnv("ANCHORE_ACCOUNT", origAcct);
+    restoreEnv("ANCHORE_API_VERSION", origVer);
   });
 
   it("loads required vars and strips trailing slash on URL", () => {
@@ -43,6 +51,27 @@ describe("loadConnectionFromEnv", () => {
     expect(c.username).toBe("_api_key");
     expect(c.password).toBe("secret-token");
     expect(c.account).toBeUndefined();
+    expect(c.apiVersion).toBe("v2");
+  });
+
+  it("defaults apiVersion to v2 when ANCHORE_API_VERSION is unset", () => {
+    process.env.ANCHORE_URL = "https://a.example.com";
+    process.env.ANCHORE_TOKEN = "t";
+    expect(loadConnectionFromEnv().apiVersion).toBe("v2");
+  });
+
+  it("honors ANCHORE_API_VERSION=v1", () => {
+    process.env.ANCHORE_URL = "https://a.example.com";
+    process.env.ANCHORE_TOKEN = "t";
+    process.env.ANCHORE_API_VERSION = "v1";
+    expect(loadConnectionFromEnv().apiVersion).toBe("v1");
+  });
+
+  it("throws when ANCHORE_API_VERSION is invalid", () => {
+    process.env.ANCHORE_URL = "https://a.example.com";
+    process.env.ANCHORE_TOKEN = "t";
+    process.env.ANCHORE_API_VERSION = "v3";
+    expect(() => loadConnectionFromEnv()).toThrow();
   });
 
   it("includes optional account", () => {
@@ -85,10 +114,12 @@ describe("getConnectionSnapshot", () => {
       username: "_api_key",
       password: "secret",
       account: "acct",
+      apiVersion: "v2",
     });
     expect(snap).toEqual({
       baseUrl: "https://x.com",
       account: "acct",
+      apiVersion: "v2",
     });
   });
 
@@ -97,7 +128,9 @@ describe("getConnectionSnapshot", () => {
       baseUrl: "https://x.com",
       username: "_api_key",
       password: "secret",
+      apiVersion: "v1",
     });
     expect(snap.account).toBeNull();
+    expect(snap.apiVersion).toBe("v1");
   });
 });

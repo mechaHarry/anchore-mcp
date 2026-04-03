@@ -24,6 +24,7 @@ Each MCP process talks to **one** Anchore deployment. Set environment variables 
 | `ANCHORE_URL` | Yes | HTTPS base URL of Anchore Enterprise (e.g. `https://anchore.company.com`) |
 | `ANCHORE_TOKEN` | Yes | API token (sent as Basic auth with username `_api_key`) |
 | `ANCHORE_ACCOUNT` | No | Optional account name (`x-anchore-account`) when your deployment uses it |
+| `ANCHORE_API_VERSION` | No | `v2` (default) or `v1`. Enterprise 5+ expects **v2** paths (`/v2/images`, etc.). Use `v1` only for legacy installs. Confirm with `https://<host>/v2/openapi.json` on your deployment. |
 
 Need **multiple** Anchore deployments? Add **multiple** MCP server entries in your IDE, each with its own `command`/`args` and **different** `env` (different `ANCHORE_URL` and token).
 
@@ -60,7 +61,9 @@ Example fragment for a JSON-style MCP config:
       "args": ["/absolute/path/to/anchore-mcp/dist/index.js"],
       "env": {
         "ANCHORE_URL": "https://anchore.example.com",
-        "ANCHORE_TOKEN": "your-api-token-here"
+        "ANCHORE_TOKEN": "your-api-token-here",
+        "ANCHORE_ACCOUNT": "optional-account-name",
+        "ANCHORE_API_VERSION": "v2"
       }
     }
   }

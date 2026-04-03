@@ -7,6 +7,7 @@ const sampleConnection: ResolvedAnchoreConnection = {
   username: "_api_key",
   password: "secret",
   account: "myacct",
+  apiVersion: "v2",
 };
 
 describe("getConnectionInfo", () => {
@@ -15,6 +16,7 @@ describe("getConnectionInfo", () => {
     expect(info).toEqual({
       baseUrl: "https://anchore.example.com",
       account: "myacct",
+      apiVersion: "v2",
     });
   });
 });

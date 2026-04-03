@@ -3,12 +3,13 @@ import type { ResolvedAnchoreConnection } from "../config/connection.js";
 import { formatAnchoreToolJson } from "./format.js";
 import { runListImages } from "./images.js";
 
-function testConnection(): ResolvedAnchoreConnection {
+function testConnection(apiVersion: "v1" | "v2" = "v2"): ResolvedAnchoreConnection {
   return {
     baseUrl: "https://anchore.example.com",
     username: "_api_key",
     password: "test-token-value",
     account: "acct1",
+    apiVersion,
   };
 }
 
@@ -29,18 +30,41 @@ describe("runListImages", () => {
     expect(result.isError).not.toBe(true);
     const text = result.content?.[0]?.type === "text" ? result.content[0].text : "";
     const parsed = JSON.parse(text) as {
-      context: { baseUrl: string; account?: string };
+      context: { baseUrl: string; account?: string; apiVersion: string };
       summary: string;
       anchore: { images: unknown[] };
     };
     expect(parsed.context.baseUrl).toBe("https://anchore.example.com");
     expect(parsed.context.account).toBe("acct1");
+    expect(parsed.context.apiVersion).toBe("v2");
     expect(parsed.summary).toMatch(/1 image/);
     expect(parsed.anchore.images).toHaveLength(1);
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://anchore.example.com/v1/images",
+      "https://anchore.example.com/v2/images",
       expect.anything(),
     );
+  });
+
+  it("uses /v1/images when ANCHORE_API_VERSION is v1", async () => {
+    const connection = testConnection("v1");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ images: [] }), { status: 200 }),
+    );
+    await runListImages(connection, {}, { fetch: fetchMock });
+    expect(fetchMock.mock.calls[0][0]).toBe("https://anchore.example.com/v1/images");
+  });
+
+  it("summarizes v2 items-shaped list responses", async () => {
+    const connection = testConnection();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ items: [{ image_digest: "sha256:x" }] }), {
+        status: 200,
+      }),
+    );
+    const result = await runListImages(connection, {}, { fetch: fetchMock });
+    const text = result.content?.[0]?.type === "text" ? result.content[0].text : "";
+    const parsed = JSON.parse(text) as { summary: string };
+    expect(parsed.summary).toMatch(/Found 1 image/);
   });
 
   it("uses empty-result messaging", async () => {
@@ -76,6 +100,7 @@ describe("runListImages", () => {
     const json = formatAnchoreToolJson(
       {
         baseUrl: "https://anchore.enterprise.local",
+        apiVersion: "v2",
         action: "list images",
       },
       "Contact leaks@example.com for access.",

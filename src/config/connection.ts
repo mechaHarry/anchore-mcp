@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { AnchoreApiVersion } from "../anchore/api-paths.js";
 
 /** HTTPS Anchore Enterprise base URL (no trailing slash required). */
 const URL_ENV = "ANCHORE_URL";
@@ -6,6 +7,8 @@ const URL_ENV = "ANCHORE_URL";
 const TOKEN_ENV = "ANCHORE_TOKEN";
 /** Optional Anchore account / demarcation (`x-anchore-account`). */
 const ACCOUNT_ENV = "ANCHORE_ACCOUNT";
+/** REST API path version: `v2` (Anchore Enterprise 5+) or legacy `v1`. */
+const API_VERSION_ENV = "ANCHORE_API_VERSION";
 
 /**
  * One Anchore deployment per MCP process. Use multiple IDE MCP entries (each with
@@ -16,6 +19,8 @@ export type ResolvedAnchoreConnection = {
   username: "_api_key";
   password: string;
   account?: string;
+  /** Which `/v1/...` vs `/v2/...` routes to call (see Anchore migration docs). */
+  apiVersion: AnchoreApiVersion;
 };
 
 function requireNonEmpty(name: string, value: string | undefined): string {
@@ -36,6 +41,8 @@ const urlSchema = z
     message: `${URL_ENV} must be an https:// URL`,
   });
 
+const apiVersionSchema = z.enum(["v1", "v2"]);
+
 /**
  * Load Anchore connection settings from the process environment.
  * Secrets must not be committed; configure env in your MCP host (Cursor, etc.).
@@ -50,10 +57,17 @@ export function loadConnectionFromEnv(): ResolvedAnchoreConnection {
   const account =
     accountRaw !== undefined && accountRaw.length > 0 ? accountRaw : undefined;
 
+  const rawVer = process.env[API_VERSION_ENV]?.trim().toLowerCase();
+  const apiVersion: AnchoreApiVersion =
+    rawVer === undefined || rawVer === ""
+      ? "v2"
+      : apiVersionSchema.parse(rawVer);
+
   return {
     baseUrl: normalized,
     username: "_api_key",
     password,
+    apiVersion,
     ...(account !== undefined ? { account } : {}),
   };
 }
@@ -62,9 +76,11 @@ export function loadConnectionFromEnv(): ResolvedAnchoreConnection {
 export function getConnectionSnapshot(conn: ResolvedAnchoreConnection): {
   baseUrl: string;
   account: string | null;
+  apiVersion: AnchoreApiVersion;
 } {
   return {
     baseUrl: conn.baseUrl,
     account: conn.account ?? null,
+    apiVersion: conn.apiVersion,
   };
 }

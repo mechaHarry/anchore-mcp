@@ -1,3 +1,4 @@
+import type { AnchoreApiVersion } from "../anchore/api-paths.js";
 import { prepareTextualToolText } from "../pii/warn.js";
 import { toolContextSummary, type ToolContextFields } from "./context.js";
 
@@ -5,6 +6,7 @@ export type AnchoreToolPayload = {
   context: {
     baseUrl: string;
     account?: string;
+    apiVersion: AnchoreApiVersion;
     action: string;
     /** Same as `toolContextSummary` for R8 visibility. */
     summaryLine: string;
@@ -26,6 +28,7 @@ export function formatAnchoreToolJson(
   const payload: AnchoreToolPayload = {
     context: {
       baseUrl: ctx.baseUrl,
+      apiVersion: ctx.apiVersion,
       ...(ctx.account !== undefined ? { account: ctx.account } : {}),
       action: ctx.action,
       summaryLine: toolContextSummary(ctx),

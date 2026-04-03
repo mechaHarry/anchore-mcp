@@ -2,11 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ResolvedAnchoreConnection } from "../config/connection.js";
 import { runImageVulnerabilities } from "./vulnerabilities.js";
 
-function testConnection(): ResolvedAnchoreConnection {
+function testConnection(apiVersion: "v1" | "v2" = "v2"): ResolvedAnchoreConnection {
   return {
     baseUrl: "https://anchore.example.com",
     username: "_api_key",
     password: "test-token",
+    apiVersion,
   };
 }
 
@@ -34,7 +35,8 @@ describe("runImageVulnerabilities", () => {
     expect(result.isError).not.toBe(true);
     const url = fetchMock.mock.calls[0][0] as string;
     expect(url).toContain(encodeURIComponent(digest));
-    expect(url).toContain("/vulnerabilities");
+    expect(url).toContain("/v2/");
+    expect(url).toContain("/vuln/all");
     const text = result.content?.[0]?.type === "text" ? result.content[0].text : "";
     const parsed = JSON.parse(text) as {
       context: { baseUrl: string };
@@ -65,5 +67,20 @@ describe("runImageVulnerabilities", () => {
     const connection = testConnection();
     const result = await runImageVulnerabilities(connection, { image_digest: "   " });
     expect(result.isError).toBe(true);
+  });
+
+  it("uses v1 vulnerabilities path when apiVersion is v1", async () => {
+    const connection = testConnection("v1");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ vulnerabilities: [] }), { status: 200 }),
+    );
+    await runImageVulnerabilities(
+      connection,
+      { image_digest: "sha256:abc" },
+      { fetch: fetchMock },
+    );
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain("/v1/images/");
+    expect(url).toContain("/vulnerabilities");
   });
 });
