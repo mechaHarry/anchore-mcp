@@ -39,6 +39,10 @@ Source-repository SBOM endpoints documented elsewhere may still use **`/v2/sourc
 - `pnpm test` — URL expectations in `src/tools/sbom.test.ts` assert `.../sboms/native-json` (etc.).
 - Live check: `GET https://<host>/v2/openapi.json` and search for `sboms` under `images`.
 
+## Related
+
+- If the path uses **`/sboms/`** but requests still fail with **400**, confirm the **`{image_digest}`** segment is a real analyzed digest (`sha256:…`), not a registry tag — see [Anchore v2 digest vs tag](../best-practices/2026-04-03-anchore-v2-digest-vs-tag-image-apis.md).
+
 ## References
 
 - Deployment **`GET /v2/openapi.json`** (source of truth for exact paths)
