@@ -1,7 +1,7 @@
 ---
 title: "feat: Anchore Enterprise MCP (read paths, single-Anchore env config, remediation handoff)"
 type: feat
-status: active
+status: completed
 date: 2026-04-02
 origin: docs/brainstorms/2026-04-02-anchore-enterprise-mcp-requirements.md
 revised: 2026-04-02
@@ -324,7 +324,7 @@ sequenceDiagram
 
 ---
 
-- [ ] **Unit 8: Documentation, CI, and quality gate**
+- [x] **Unit 8: Documentation, CI, and quality gate**
 
 **Goal:** **R11** complete README + `AGENTS.md`; **npm scripts** `lint`, `typecheck`, `test`; optional `.github/workflows/ci.yml`; final pass that **R13** redaction and **R14** “no JSON on stderr” invariants hold across tools.
 

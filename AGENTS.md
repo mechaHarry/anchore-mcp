@@ -62,10 +62,12 @@ See [env.example](env.example) and [README.md](README.md).
 ## Testing & build
 
 ```bash
-pnpm install && pnpm run build && pnpm test
+pnpm install && pnpm run check
 ```
 
-Unit tests inject `connection` via `createMcpServer({ connection })` / tool `options.connection` so they do not depend on real env.
+`check` runs **lint** (ESLint + `typescript-eslint`), **typecheck**, **build**, and **tests**. For a quicker loop: `pnpm test` or `pnpm run typecheck`.
+
+Unit tests inject `connection` via `createMcpServer({ connection })` / tool `options.connection` so they do not depend on real env. **R13** stderr redaction and **R14** textual masking are covered by `src/logging/safe-log.test.ts` and `src/pii/text.test.ts`; do not log full tool JSON bodies to stderr in new tools.
 
 ## Security
 
@@ -74,7 +76,7 @@ Unit tests inject `connection` via `createMcpServer({ connection })` / tool `opt
 
 ## Plan status (when this file was written)
 
-Units **1–7** implemented (connection, client, PII/safe logging, images/vulns, **SBOM** + policy + image detail, **v2** paths, **remediation handoff** + schema doc). **Unit 8** (CI workflow / optional lint script) per the plan — update this section as units land.
+Units **1–8** implemented: connection, client, PII/safe logging, images/vulns, **SBOM** + policy + image detail, **v2** paths, **remediation handoff** + schema doc, **ESLint** + **`pnpm run check`** + [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## What we learned (operational)
 
