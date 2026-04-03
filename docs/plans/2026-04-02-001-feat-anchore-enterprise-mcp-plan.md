@@ -300,7 +300,7 @@ sequenceDiagram
 
 ---
 
-- [ ] **Unit 7: Remediation handoff tool and schema documentation**
+- [x] **Unit 7: Remediation handoff tool and schema documentation**
 
 **Goal:** **R7** + **R11** — dedicated handoff tool, **versioned JSON**, `docs/remediation-handoff-schema.md`.
 

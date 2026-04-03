@@ -93,4 +93,4 @@ Image list **filtering** is limited to what the tool forwards (`fulltag`, `vulne
 
 ## Status
 
-Per [docs/plans/2026-04-02-001-feat-anchore-enterprise-mcp-plan.md](docs/plans/2026-04-02-001-feat-anchore-enterprise-mcp-plan.md): **Units 1–6 are implemented** (images, vulnerabilities, **SBOM** formats, policy check, image detail, **R15** size metadata). **Next is Unit 7** — remediation handoff tool and schema doc.
+Per [docs/plans/2026-04-02-001-feat-anchore-enterprise-mcp-plan.md](docs/plans/2026-04-02-001-feat-anchore-enterprise-mcp-plan.md): **Units 1–7 are implemented** (including **`anchore_remediation_handoff`** and [docs/remediation-handoff-schema.md](docs/remediation-handoff-schema.md)). **Next is Unit 8** — optional CI workflow and quality gate polish.

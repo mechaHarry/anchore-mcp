@@ -1,6 +1,8 @@
 # Agent guidance — anchore-mcp
 
-Local **stdio MCP server** for **Anchore Enterprise** (read-only: images, vulnerabilities, SBOM, policy check, image detail; remediation handoff planned). One **HTTPS Anchore deployment per MCP process** — multiple backends = **multiple MCP entries** in the IDE, each with its own `env`.
+Local **stdio MCP server** for **Anchore Enterprise** (read-only: images, vulnerabilities, SBOM, policy check, image detail, **remediation handoff**). One **HTTPS Anchore deployment per MCP process** — multiple backends = **multiple MCP entries** in the IDE, each with its own `env`.
+
+- Remediation handoff schema: [docs/remediation-handoff-schema.md](docs/remediation-handoff-schema.md)
 
 ## Sources of truth
 
@@ -18,7 +20,7 @@ Local **stdio MCP server** for **Anchore Enterprise** (read-only: images, vulner
 | `src/config/connection.ts` | `loadConnectionFromEnv()` → `ANCHORE_URL`, `ANCHORE_TOKEN`, optional `ANCHORE_ACCOUNT`, `ANCHORE_API_VERSION` (`v2` default). |
 | `src/anchore/client.ts` | `fetch` + Basic auth (`_api_key` + token), optional `x-anchore-account`. |
 | `src/anchore/api-paths.ts` | Versioned REST paths: **v2** vs **v1**. |
-| `src/tools/*` | Tools call Anchore; `formatAnchoreToolJson` for R8 + R14; SBOM / image detail include **sizeBytes** (R15). |
+| `src/tools/*` | Tools call Anchore; `formatAnchoreToolJson` for R8 + R14; SBOM / image detail / **remediation handoff** include **sizeBytes** (R15). Handoff: `remediation-handoff.ts` + [docs/remediation-handoff-schema.md](docs/remediation-handoff-schema.md). |
 | `src/pii/*`, `src/logging/safe-log.ts` | R14 mask/warn; R13 stderr redaction / line cap. |
 
 **Lazy config:** Connection is **not** loaded at process start. Missing `ANCHORE_*` does **not** exit the process — the MCP handshake can complete (trust / probes). Env is read when a tool runs (or `anchore_connection_info`).
@@ -72,7 +74,7 @@ Unit tests inject `connection` via `createMcpServer({ connection })` / tool `opt
 
 ## Plan status (when this file was written)
 
-Units **1–6** implemented (connection, client, PII/safe logging, images/vulns, **SBOM** + policy + image detail, **v2** paths). **Unit 7+** (remediation handoff, CI/docs) per the plan — update this section as units land.
+Units **1–7** implemented (connection, client, PII/safe logging, images/vulns, **SBOM** + policy + image detail, **v2** paths, **remediation handoff** + schema doc). **Unit 8** (CI workflow / optional lint script) per the plan — update this section as units land.
 
 ## What we learned (operational)
 

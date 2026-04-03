@@ -7,6 +7,7 @@ import {
   loadConnectionFromEnv,
 } from "../config/connection.js";
 import { runListImages } from "../tools/images.js";
+import { runRemediationHandoff } from "../tools/remediation-handoff.js";
 import { runImageDetail, runImagePolicyCheck } from "../tools/reports.js";
 import { runImageSbom } from "../tools/sbom.js";
 import { runImageVulnerabilities } from "../tools/vulnerabilities.js";
@@ -147,6 +148,35 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
         .describe("Image digest, e.g. sha256:…"),
     },
     async (args) => runImageDetail(args, { connection: options.connection }),
+  );
+
+  server.tool(
+    "anchore_remediation_handoff",
+    "Build a versioned remediation handoff bundle (R7): image detail + vulnerabilities + optional policy check in one JSON payload. See docs/remediation-handoff-schema.md. No repo routing fields — consumers attach org metadata. R8 context + R15 total sizeBytes.",
+    {
+      image_digest: z
+        .string()
+        .min(1)
+        .describe("Image digest, e.g. sha256:…"),
+      tag: z
+        .string()
+        .optional()
+        .describe(
+          "Full image tag for policy check when your Anchore version requires it",
+        ),
+      base_digest: z
+        .string()
+        .optional()
+        .describe("Optional base image digest for policy comparison"),
+      include_policy_check: z
+        .boolean()
+        .optional()
+        .describe(
+          "When false, skip GET .../check (omit policy evidence). Default true.",
+        ),
+    },
+    async (args) =>
+      runRemediationHandoff(args, { connection: options.connection }),
   );
 
   return server;
