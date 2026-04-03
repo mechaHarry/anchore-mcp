@@ -1,25 +1,16 @@
 /**
- * Entrypoint: dynamic import so a failure loading `mcp/server.js` (missing `dist/`, bad path)
- * is caught and printed to stderr instead of an unhandled exception during static import.
+ * Dynamic import so a missing `dist/` build or bad path fails with a clear stderr line
+ * instead of an unhandled exception during static import.
+ *
+ * Avoid `process.on('uncaughtException')` here — some IDE/agent hosts manage the child
+ * lifecycle and extra global handlers can interact badly with their probes.
  */
-function logFatal(scope: string, err: unknown): void {
-  console.error(`[anchore-mcp] ${scope}:`, err);
-  process.exit(1);
-}
-
-process.on("uncaughtException", (err) => {
-  logFatal("uncaughtException", err);
-});
-
-process.on("unhandledRejection", (reason) => {
-  logFatal("unhandledRejection", reason);
-});
-
 void (async () => {
   try {
     const { main } = await import("./mcp/server.js");
     await main();
   } catch (err) {
-    logFatal("startup", err);
+    console.error("[anchore-mcp] startup:", err);
+    process.exit(1);
   }
 })();
