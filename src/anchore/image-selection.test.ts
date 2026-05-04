@@ -102,6 +102,36 @@ describe("selectImageForPolicyBlockingReport", () => {
     });
   });
 
+  it("matches an exact reference from any row reference field", async () => {
+    const requested = "docker.io/library/nginx:1.25";
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          image_digest: "sha256:matched-later-field",
+          fulltag: "docker.io/library/nginx:latest",
+          imageTag: requested,
+          analyzedAt: "2026-04-02T00:00:00Z",
+        },
+      ]),
+    );
+
+    const result = await selectImageForPolicyBlockingReport(
+      { image_reference: requested },
+      testConn(),
+      { fetch: fetchMock },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      selectedImage: {
+        digest: "sha256:matched-later-field",
+        reference: requested,
+        repository: "docker.io/library/nginx",
+        analysisTimestamp: "2026-04-02T00:00:00Z",
+      },
+    });
+  });
+
   it("selects the newest matching repository across tags", async () => {
     const repository = "registry.example.com/team/app";
     const fetchMock = vi.fn().mockResolvedValue(
@@ -141,6 +171,44 @@ describe("selectImageForPolicyBlockingReport", () => {
     });
     expect(fetchMock.mock.calls[0][0]).toContain("repository=");
     expect(fetchMock.mock.calls[0][0]).toContain(encodeURIComponent(repository));
+  });
+
+  it("matches a repository from any repository or derived reference field", async () => {
+    const repository = "registry.example.com/team/app";
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          imageDigest: "sha256:matched-later-repo-field",
+          repository: "registry.example.com/team/wrong",
+          imageRepository: repository,
+          image_tag: "registry.example.com/team/app:2.0",
+          analyzed_at: "2026-04-03T00:00:00Z",
+        },
+        {
+          imageDigest: "sha256:matched-derived-reference",
+          repository: "registry.example.com/team/wrong",
+          fulltag: "registry.example.com/team/wrong:latest",
+          imageTag: "registry.example.com/team/app:3.0",
+          analyzed_at: "2026-04-04T00:00:00Z",
+        },
+      ]),
+    );
+
+    const result = await selectImageForPolicyBlockingReport(
+      { image_repository: repository },
+      testConn(),
+      { fetch: fetchMock },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      selectedImage: {
+        digest: "sha256:matched-derived-reference",
+        reference: "registry.example.com/team/app:3.0",
+        repository,
+        analysisTimestamp: "2026-04-04T00:00:00Z",
+      },
+    });
   });
 
   it("returns image_selection_error when the newest timestamp is tied across digests", async () => {

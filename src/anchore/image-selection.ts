@@ -81,21 +81,19 @@ function stringField(row: Record<string, unknown>, key: string): string | undefi
     : undefined;
 }
 
-function firstStringField(
-  row: Record<string, unknown>,
-  keys: readonly string[],
-): string | undefined {
+function stringFields(row: Record<string, unknown>, keys: readonly string[]): string[] {
+  const values: string[] = [];
   for (const key of keys) {
     const value = stringField(row, key);
     if (value !== undefined) {
-      return value;
+      values.push(value);
     }
   }
-  return undefined;
+  return values;
 }
 
-function referenceFromRow(row: Record<string, unknown>): string | undefined {
-  return firstStringField(row, REFERENCE_KEYS);
+function referencesFromRow(row: Record<string, unknown>): string[] {
+  return stringFields(row, REFERENCE_KEYS);
 }
 
 function timestampFromRow(
@@ -151,13 +149,15 @@ function validateRepository(repository: string): { ok: true } | { ok: false; mes
   return { ok: true };
 }
 
-function repositoryFromRow(row: Record<string, unknown>): string | undefined {
-  const fieldValue = firstStringField(row, REPOSITORY_KEYS);
-  if (fieldValue !== undefined) {
-    return fieldValue;
+function repositoriesFromRow(row: Record<string, unknown>): string[] {
+  const repositories = stringFields(row, REPOSITORY_KEYS);
+  for (const reference of referencesFromRow(row)) {
+    const derived = stripTagFromReference(reference);
+    if (derived !== undefined) {
+      repositories.push(derived);
+    }
   }
-  const reference = referenceFromRow(row);
-  return reference !== undefined ? stripTagFromReference(reference) : undefined;
+  return repositories;
 }
 
 function selectNewest(candidates: TimestampedCandidate[]): ImageSelectionResult {
@@ -236,7 +236,7 @@ async function selectByReference(
       continue;
     }
     const objectRow = row as Record<string, unknown>;
-    if (referenceFromRow(objectRow) !== reference) {
+    if (!referencesFromRow(objectRow).includes(reference)) {
       continue;
     }
     const digest = digestFromImageRow(objectRow);
@@ -281,7 +281,7 @@ async function selectByRepository(
       continue;
     }
     const objectRow = row as Record<string, unknown>;
-    if (repositoryFromRow(objectRow) !== repository) {
+    if (!repositoriesFromRow(objectRow).includes(repository)) {
       continue;
     }
     const digest = digestFromImageRow(objectRow);
@@ -289,7 +289,9 @@ async function selectByRepository(
     if (digest === undefined || timestamp === undefined) {
       continue;
     }
-    const reference = referenceFromRow(objectRow);
+    const reference = referencesFromRow(objectRow).find(
+      (candidate) => stripTagFromReference(candidate) === repository,
+    );
     candidates.push({
       digest,
       ...(reference !== undefined ? { reference } : {}),
