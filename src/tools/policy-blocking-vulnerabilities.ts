@@ -4,6 +4,7 @@ import {
   imageVulnerabilitiesPath,
 } from "../anchore/api-paths.js";
 import { createAnchoreClient } from "../anchore/client.js";
+import { AnchoreError } from "../anchore/errors.js";
 import {
   selectImageForPolicyBlockingReport,
   type PolicyBlockingImageLocator,
@@ -28,6 +29,8 @@ import { formatAnchoreToolJson } from "./format.js";
 export const POLICY_BLOCKING_VULNS_REPORT_VERSION = "1.0.0" as const;
 export const POLICY_BLOCKING_VULN_EVIDENCE_MAX_RESPONSE_BYTES =
   20 * 1024 * 1024;
+const UNEXPECTED_POLICY_BLOCKING_FAILURE_MESSAGE =
+  "Unexpected error while building policy blocking vulnerabilities.";
 
 export type PolicyBlockingVulnerabilitiesArgs = PolicyBlockingImageLocator & {
   tag?: string;
@@ -66,6 +69,14 @@ function connectionErrorMessage(err: unknown): string {
   return err instanceof Error
     ? err.message
     : "Anchore connection is not configured.";
+}
+
+function policyBlockingFailureMessage(err: unknown): string {
+  if (err instanceof AnchoreError) {
+    return anchoreFailureMessage(err);
+  }
+
+  return UNEXPECTED_POLICY_BLOCKING_FAILURE_MESSAGE;
 }
 
 function policyQuery(args: PolicyBlockingVulnerabilitiesArgs): URLSearchParams {
@@ -188,12 +199,13 @@ export async function runPolicyBlockingVulnerabilities(
       ],
     };
   } catch (err) {
+    const message = policyBlockingFailureMessage(err);
     logStderrLine(
-      `anchore_policy_blocking_vulnerabilities: ${anchoreFailureMessage(err)}`,
+      `anchore_policy_blocking_vulnerabilities: ${message}`,
     );
     return errorResult({
       error: true,
-      message: anchoreFailureMessage(err),
+      message,
     });
   }
 }

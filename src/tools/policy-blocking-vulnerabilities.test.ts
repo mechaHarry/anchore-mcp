@@ -216,6 +216,23 @@ describe("runPolicyBlockingVulnerabilities", () => {
     );
   });
 
+  it("sanitizes generic unexpected errors before returning or logging them", async () => {
+    const rawBodyMarker = "RAW_BODY_MARKER secret-ish response body";
+    const fetchMock = vi.fn().mockRejectedValue(new Error(rawBodyMarker));
+
+    const result = await runPolicyBlockingVulnerabilities(
+      { image_digest: "sha256:policy-error" },
+      { connection: testConnection(), fetch: fetchMock },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(textPayload(result)).not.toContain("RAW_BODY_MARKER");
+    expect(safeLog.logStderrLine).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(safeLog.logStderrLine).mock.calls[0]?.[0]).not.toContain(
+      "RAW_BODY_MARKER",
+    );
+  });
+
   it("returns image selection error without fetching policy or vulnerabilities after selection fails", async () => {
     const fetchMock = vi.fn();
 
