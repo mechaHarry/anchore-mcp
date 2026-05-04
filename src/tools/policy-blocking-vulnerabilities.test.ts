@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResolvedAnchoreConnection } from "../config/connection.js";
 import * as safeLog from "../logging/safe-log.js";
 import {
+  POLICY_BLOCKING_VULN_EVIDENCE_MAX_RESPONSE_BYTES,
   POLICY_BLOCKING_VULNS_REPORT_VERSION,
   runPolicyBlockingVulnerabilities,
+  type PolicyBlockingVulnerabilitiesErrorPayload,
 } from "./policy-blocking-vulnerabilities.js";
 
 function testConnection(): ResolvedAnchoreConnection {
@@ -164,6 +166,53 @@ describe("runPolicyBlockingVulnerabilities", () => {
     expect(parsed.error).toBe(true);
     expect(parsed.policyRemediationStatus).toBe(
       "red_policy_without_proven_vulnerability_fix",
+    );
+    expect(parsed).toMatchObject({
+      reportVersion: POLICY_BLOCKING_VULNS_REPORT_VERSION,
+      selectedImage: { digest: "sha256:no-proof" },
+    });
+  });
+
+  it("returns a clean MCP error when vulnerability evidence exceeds the response cap", async () => {
+    const rawBodyMarker = "RAW_BODY_MARKER_SHOULD_NOT_LEAK";
+    const oversizedVulnerabilityBody =
+      JSON.stringify({ vulnerabilities: [{ note: rawBodyMarker }] }) +
+      " ".repeat(POLICY_BLOCKING_VULN_EVIDENCE_MAX_RESPONSE_BYTES + 1);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: "fail",
+            gates: [
+              {
+                gate: "vulnerability",
+                action: "stop",
+                vulnerability_id: "CVE-2026-0002",
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(oversizedVulnerabilityBody, { status: 200 }),
+      );
+
+    const result = await runPolicyBlockingVulnerabilities(
+      { image_digest: "sha256:oversized" },
+      { connection: testConnection(), fetch: fetchMock },
+    );
+
+    expect(result.isError).toBe(true);
+    const parsed = JSON.parse(textPayload(result)) as PolicyBlockingVulnerabilitiesErrorPayload;
+    expect(parsed.error).toBe(true);
+    expect(parsed.message).toMatch(/exceeding/i);
+    expect(parsed.message).not.toContain(rawBodyMarker);
+    expect(safeLog.logStderrLine).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(safeLog.logStderrLine).mock.calls[0]?.[0]).toMatch(/exceeding/i);
+    expect(vi.mocked(safeLog.logStderrLine).mock.calls[0]?.[0]).not.toContain(
+      rawBodyMarker,
     );
   });
 

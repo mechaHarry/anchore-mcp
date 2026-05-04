@@ -26,6 +26,8 @@ import type { ToolContextFields } from "./context.js";
 import { formatAnchoreToolJson } from "./format.js";
 
 export const POLICY_BLOCKING_VULNS_REPORT_VERSION = "1.0.0" as const;
+export const POLICY_BLOCKING_VULN_EVIDENCE_MAX_RESPONSE_BYTES =
+  20 * 1024 * 1024;
 
 export type PolicyBlockingVulnerabilitiesArgs = PolicyBlockingImageLocator & {
   tag?: string;
@@ -39,7 +41,21 @@ export type PolicyBlockingVulnerabilitiesPayload = {
   blockingVulnerabilities: BlockingVulnerability[];
 };
 
-function errorResult(payload: Record<string, unknown>): CallToolResult {
+export type PolicyBlockingVulnerabilitiesErrorStatus =
+  | "image_selection_error"
+  | "red_policy_without_proven_vulnerability_fix";
+
+export type PolicyBlockingVulnerabilitiesErrorPayload = {
+  error: true;
+  message: string;
+  policyRemediationStatus?: PolicyBlockingVulnerabilitiesErrorStatus;
+  reportVersion?: typeof POLICY_BLOCKING_VULNS_REPORT_VERSION;
+  selectedImage?: SelectedImage;
+};
+
+function errorResult(
+  payload: PolicyBlockingVulnerabilitiesErrorPayload,
+): CallToolResult {
   return {
     content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
     isError: true,
@@ -139,6 +155,7 @@ export async function runPolicyBlockingVulnerabilities(
         connection.apiVersion,
         selected.selectedImage.digest,
       ),
+      { maxResponseBytes: POLICY_BLOCKING_VULN_EVIDENCE_MAX_RESPONSE_BYTES },
     );
     const blockingVulnerabilities = buildBlockingVulnerabilities(
       extractPolicyBlockingFindings(policyData),
@@ -151,6 +168,8 @@ export async function runPolicyBlockingVulnerabilities(
         message:
           "Policy is non-green, but no exact blocking vulnerability remediation could be proven from policy and vulnerability evidence.",
         policyRemediationStatus: "red_policy_without_proven_vulnerability_fix",
+        reportVersion: POLICY_BLOCKING_VULNS_REPORT_VERSION,
+        selectedImage: selected.selectedImage,
       });
     }
 
