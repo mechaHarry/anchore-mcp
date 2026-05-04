@@ -16,13 +16,17 @@ const BLOCK_ACTIONS = new Set(["stop", "fail", "failed", "deny", "denied", "bloc
 const VULNERABILITY_GATES = new Set(["vulnerability", "vulnerabilities", "vuln", "vulns"]);
 
 const STATUS_KEYS = ["status", "result"] as const;
-const VULNERABILITY_ID_KEYS = [
+const BLOCK_ACTION_KEYS = ["action", "policy_action", "status", "result"] as const;
+const VULNERABILITY_SPECIFIC_ID_KEYS = [
   "vulnerability_id",
   "vulnerabilityId",
   "vuln_id",
   "vulnId",
   "vuln",
   "cve",
+] as const;
+const VULNERABILITY_ID_KEYS = [
+  ...VULNERABILITY_SPECIFIC_ID_KEYS,
   "id",
 ] as const;
 const PACKAGE_NAME_KEYS = ["package_name", "packageName", "pkg_name", "pkgName", "package"] as const;
@@ -54,8 +58,7 @@ export function extractPolicyBlockingFindings(payload: unknown): PolicyBlockingF
   const findings: PolicyBlockingFinding[] = [];
 
   for (const { value, sourceRef } of walkObjects(payload)) {
-    const blockAction = findFirstString(value, ["action", "status", "result"]);
-    if (!blockAction || !BLOCK_ACTIONS.has(normalize(blockAction))) {
+    if (!hasBlockingAction(value)) {
       continue;
     }
 
@@ -64,7 +67,10 @@ export function extractPolicyBlockingFindings(payload: unknown): PolicyBlockingF
       continue;
     }
 
-    const vulnerabilityId = findFirstString(value, VULNERABILITY_ID_KEYS);
+    const vulnerabilityId = findFirstString(
+      value,
+      gate ? VULNERABILITY_ID_KEYS : VULNERABILITY_SPECIFIC_ID_KEYS,
+    );
     const packageName = findFirstString(value, PACKAGE_NAME_KEYS);
     const packageVersion = findFirstString(value, PACKAGE_VERSION_KEYS);
 
@@ -101,6 +107,13 @@ export function extractPolicyBlockingFindings(payload: unknown): PolicyBlockingF
   }
 
   return findings;
+}
+
+function hasBlockingAction(object: JsonObject): boolean {
+  return BLOCK_ACTION_KEYS.some((key) => {
+    const value = findFirstString(object, [key]);
+    return value ? BLOCK_ACTIONS.has(normalize(value)) : false;
+  });
 }
 
 function statusFromValue(value: unknown): PolicyStatus {

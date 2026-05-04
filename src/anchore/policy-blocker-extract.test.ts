@@ -77,6 +77,33 @@ describe("extractPolicyBlockingFindings", () => {
     ]);
   });
 
+  it("treats any blocking action, policy action, status, or result as blocking", () => {
+    const findings = extractPolicyBlockingFindings({
+      findings: [
+        {
+          action: "warn",
+          status: "fail",
+          cve: "CVE-2026-0001",
+        },
+      ],
+    });
+
+    expect(findings).toEqual([
+      {
+        vulnerabilityId: "CVE-2026-0001",
+        sourceRef: "findings[0]",
+      },
+    ]);
+  });
+
+  it("does not treat generic ids as vulnerability evidence without a vulnerability gate", () => {
+    const findings = extractPolicyBlockingFindings({
+      findings: [{ action: "stop", id: "policy-row-1" }],
+    });
+
+    expect(findings).toEqual([]);
+  });
+
   it("ignores non-blocking and non-vulnerability policy findings", () => {
     const findings = extractPolicyBlockingFindings({
       status: "fail",
