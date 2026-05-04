@@ -253,6 +253,26 @@ describe("runPolicyBlockingVulnerabilities", () => {
     expect(parsed.message).toMatch(/exactly one/);
   });
 
+  it("sanitizes generic image selection errors before returning them", async () => {
+    const rawBodyMarker = "RAW_BODY_MARKER secret-ish selection body";
+    const fetchMock = vi.fn().mockRejectedValue(new Error(rawBodyMarker));
+
+    const result = await runPolicyBlockingVulnerabilities(
+      { image_reference: "docker.io/library/nginx:latest" },
+      { connection: testConnection(), fetch: fetchMock },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(textPayload(result)).not.toContain("RAW_BODY_MARKER");
+    const parsed = JSON.parse(textPayload(result)) as {
+      policyRemediationStatus: string;
+    };
+    expect(parsed.policyRemediationStatus).toBe("image_selection_error");
+    for (const call of vi.mocked(safeLog.logStderrLine).mock.calls) {
+      expect(call[0]).not.toContain("RAW_BODY_MARKER");
+    }
+  });
+
   it("puts optional tag and base_digest only in the policy check query", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ status: "pass" }), { status: 200 }),

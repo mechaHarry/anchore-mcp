@@ -31,6 +31,8 @@ export const POLICY_BLOCKING_VULN_EVIDENCE_MAX_RESPONSE_BYTES =
   20 * 1024 * 1024;
 const UNEXPECTED_POLICY_BLOCKING_FAILURE_MESSAGE =
   "Unexpected error while building policy blocking vulnerabilities.";
+const IMAGE_SELECTION_FAILURE_MESSAGE =
+  "Image selection failed before policy evaluation.";
 
 export type PolicyBlockingVulnerabilitiesArgs = PolicyBlockingImageLocator & {
   tag?: string;
@@ -79,6 +81,24 @@ function policyBlockingFailureMessage(err: unknown): string {
   return UNEXPECTED_POLICY_BLOCKING_FAILURE_MESSAGE;
 }
 
+function policyBlockingSelectionMessage(message: string): string {
+  const safePatterns = [
+    /^Supply exactly one of image_digest, image_reference, or image_repository\.$/,
+    /^image_reference\b/,
+    /^image_repository\b/,
+    /^No matching image row had both a digest and a reliable analysis timestamp\.$/,
+    /^Newest analyzed image is ambiguous:/,
+    /^Image list enumeration incomplete\b/,
+    /^Image list enumeration incomplete after \d+ page\(s\)\.$/,
+    /^Stopped after collecting \d+ image row\(s\) \(maxItems cap\)\.$/,
+    /^Stopped after \d+ page request\(s\) \(maxPages cap\)\.$/,
+  ];
+
+  return safePatterns.some((pattern) => pattern.test(message))
+    ? message
+    : IMAGE_SELECTION_FAILURE_MESSAGE;
+}
+
 function policyQuery(args: PolicyBlockingVulnerabilitiesArgs): URLSearchParams {
   const query = new URLSearchParams();
   if (args.tag?.trim()) {
@@ -122,7 +142,7 @@ export async function runPolicyBlockingVulnerabilities(
   if (!selected.ok) {
     return errorResult({
       error: true,
-      message: selected.message,
+      message: policyBlockingSelectionMessage(selected.message),
       policyRemediationStatus: selected.status,
     });
   }
