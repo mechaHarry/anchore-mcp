@@ -77,7 +77,7 @@ describe("extractPolicyBlockingFindings", () => {
     ]);
   });
 
-  it("treats any blocking action, policy action, status, or result as blocking", () => {
+  it("treats any blocking action, status, or result as blocking", () => {
     const findings = extractPolicyBlockingFindings({
       findings: [
         {
@@ -94,6 +94,14 @@ describe("extractPolicyBlockingFindings", () => {
         sourceRef: "findings[0]",
       },
     ]);
+  });
+
+  it("does not treat policy_action as a blocking action field", () => {
+    const findings = extractPolicyBlockingFindings({
+      findings: [{ policy_action: "stop", cve: "CVE-2026-0002" }],
+    });
+
+    expect(findings).toEqual([]);
   });
 
   it("does not treat generic ids as vulnerability evidence without a vulnerability gate", () => {

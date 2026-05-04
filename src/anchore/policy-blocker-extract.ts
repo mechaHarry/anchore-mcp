@@ -16,7 +16,7 @@ const BLOCK_ACTIONS = new Set(["stop", "fail", "failed", "deny", "denied", "bloc
 const VULNERABILITY_GATES = new Set(["vulnerability", "vulnerabilities", "vuln", "vulns"]);
 
 const STATUS_KEYS = ["status", "result"] as const;
-const BLOCK_ACTION_KEYS = ["action", "policy_action", "status", "result"] as const;
+const BLOCK_ACTION_KEYS = ["action", "status", "result"] as const;
 const VULNERABILITY_SPECIFIC_ID_KEYS = [
   "vulnerability_id",
   "vulnerabilityId",
