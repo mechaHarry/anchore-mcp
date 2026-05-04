@@ -199,14 +199,15 @@ function* walkObjects(payload: unknown): Generator<{ value: JsonObject; sourceRe
     if (!isObject(current.value)) {
       continue;
     }
-    if (seen.has(current.value)) {
+    const value = current.value;
+    if (seen.has(value)) {
       continue;
     }
-    seen.add(current.value);
+    seen.add(value);
 
-    yield current;
+    yield { value, sourceRef: current.sourceRef };
 
-    const entries = Object.entries(current.value);
+    const entries = Object.entries(value);
     for (let index = entries.length - 1; index >= 0; index -= 1) {
       const entry = entries[index];
       if (!entry) {
