@@ -40,6 +40,9 @@ const PACKAGE_VERSION_KEYS = [
   "version",
 ] as const;
 const REASON_KEYS = ["reason", "message", "description"] as const;
+const TRIGGER_ID_KEYS = ["trigger_id", "triggerId"] as const;
+const VULNERABILITY_ID_PATTERN =
+  /\b(?:CVE-\d{4}-\d{4,}|GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}|(?:RHSA|ELSA|ALAS|DLA)-\d{4}:\d+)\b/i;
 
 type JsonObject = Record<string, unknown>;
 
@@ -52,6 +55,17 @@ export function policyStatusFromPayload(payload: unknown): PolicyStatus {
   }
 
   return "unknown";
+}
+
+export function hasPolicyBlockingAction(payload: unknown): boolean {
+  for (const { value } of walkObjects(payload)) {
+    const action = findFirstString(value, ["action"]);
+    if (action && BLOCK_ACTIONS.has(normalize(action))) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export function extractPolicyBlockingFindings(payload: unknown): PolicyBlockingFinding[] {
@@ -70,7 +84,7 @@ export function extractPolicyBlockingFindings(payload: unknown): PolicyBlockingF
     const vulnerabilityId = findFirstString(
       value,
       gate ? VULNERABILITY_ID_KEYS : VULNERABILITY_SPECIFIC_ID_KEYS,
-    );
+    ) ?? vulnerabilityIdFromTriggerId(value);
     const packageName = findFirstString(value, PACKAGE_NAME_KEYS);
     const packageVersion = findFirstString(value, PACKAGE_VERSION_KEYS);
 
@@ -107,6 +121,11 @@ export function extractPolicyBlockingFindings(payload: unknown): PolicyBlockingF
   }
 
   return findings;
+}
+
+function vulnerabilityIdFromTriggerId(object: JsonObject): string | undefined {
+  const triggerId = findFirstString(object, TRIGGER_ID_KEYS);
+  return triggerId?.match(VULNERABILITY_ID_PATTERN)?.[0];
 }
 
 function hasBlockingAction(object: JsonObject): boolean {

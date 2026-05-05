@@ -12,6 +12,7 @@ import {
 } from "../anchore/image-selection.js";
 import {
   extractPolicyBlockingFindings,
+  hasPolicyBlockingAction,
   policyStatusFromPayload,
 } from "../anchore/policy-blocker-extract.js";
 import {
@@ -174,7 +175,9 @@ export async function runPolicyBlockingVulnerabilities(
       ),
     );
 
-    if (policyStatusFromPayload(policyData) === "green") {
+    const policyStatus = policyStatusFromPayload(policyData);
+    const policyHasBlockingAction = hasPolicyBlockingAction(policyData);
+    if (policyStatus === "green" || (policyStatus === "unknown" && !policyHasBlockingAction)) {
       const payload: PolicyBlockingVulnerabilitiesPayload = {
         reportVersion: POLICY_BLOCKING_VULNS_REPORT_VERSION,
         policyRemediationStatus: "already_green",

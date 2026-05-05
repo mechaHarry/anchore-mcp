@@ -50,6 +50,30 @@ describe("extractPolicyBlockingFindings", () => {
     ]);
   });
 
+  it("extracts vulnerability ids from Anchore trigger_id values", () => {
+    const findings = extractPolicyBlockingFindings({
+      findings: [
+        {
+          gate: "vulnerabilities",
+          trigger: "package",
+          action: "STOP",
+          trigger_id: "CVE-2019-5435+curl",
+          message: "package curl has CVE-2019-5435",
+        },
+      ],
+    });
+
+    expect(findings).toEqual([
+      {
+        vulnerabilityId: "CVE-2019-5435",
+        gate: "vulnerabilities",
+        trigger: "package",
+        reason: "package curl has CVE-2019-5435",
+        sourceRef: "findings[0]",
+      },
+    ]);
+  });
+
   it("extracts exact package blockers without a CVE id", () => {
     const findings = extractPolicyBlockingFindings({
       status: "fail",

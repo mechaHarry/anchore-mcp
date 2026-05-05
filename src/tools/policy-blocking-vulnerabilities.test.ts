@@ -62,6 +62,31 @@ describe("runPolicyBlockingVulnerabilities", () => {
     });
   });
 
+  it("treats action-only policies with no blocking actions as already green", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          findings: [
+            { gate: "vulnerabilities", trigger: "package", action: "WARN" },
+            { gate: "vulnerabilities", trigger: "package", action: "GO" },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await runPolicyBlockingVulnerabilities(
+      { image_digest: "sha256:warn-only" },
+      { connection: testConnection(), fetch: fetchMock },
+    );
+
+    expect(result.isError).not.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const parsed = parsedToolPayload(result);
+    expect(parsed.anchore.policyRemediationStatus).toBe("already_green");
+    expect(parsed.anchore.blockingVulnerabilities).toEqual([]);
+  });
+
   it("returns a compact exact CVE blocker with fixed version and vulnerability locations", async () => {
     const fetchMock = vi
       .fn()
@@ -134,6 +159,61 @@ describe("runPolicyBlockingVulnerabilities", () => {
           policyFindingRef: "gates[0]",
         },
       },
+    ]);
+  });
+
+  it("returns a compact blocker for Anchore trigger_id CVE findings", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            findings: [
+              {
+                gate: "vulnerabilities",
+                trigger: "package",
+                action: "STOP",
+                trigger_id: "CVE-2019-5435+curl",
+                message: "package curl has CVE-2019-5435",
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            vulnerabilities: [
+              {
+                vulnerability_id: "CVE-2019-5435",
+                package_name: "curl",
+                package_version: "7.64.0",
+                fixed_version: "7.64.1",
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
+      );
+
+    const result = await runPolicyBlockingVulnerabilities(
+      { image_digest: "sha256:trigger-id" },
+      { connection: testConnection(), fetch: fetchMock },
+    );
+
+    expect(result.isError).not.toBe(true);
+    const parsed = parsedToolPayload(result);
+    expect(parsed.anchore.blockingVulnerabilities).toEqual([
+      expect.objectContaining({
+        id: "CVE-2019-5435",
+        packageName: "curl",
+        fixedVersion: "7.64.1",
+        evidence: {
+          matchedBy: ["vulnerabilityId"],
+          policyFindingRef: "findings[0]",
+        },
+      }),
     ]);
   });
 
