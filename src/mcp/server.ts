@@ -152,7 +152,7 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
 
   server.tool(
     "anchore_policy_blocking_vulnerabilities",
-    "Return only vulnerability remediations proven to change an image policy from red to green.",
+    "Return only vulnerability remediations proven to change an image policy from red to green. Pass exactly one of image_digest, image_reference, or image_repository. When a reference is resolved or selected, it is used as Anchore /check tag context unless tag is supplied explicitly.",
     {
       image_digest: z.string().optional().describe("Digest locator."),
       image_reference: z
@@ -170,7 +170,9 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
       tag: z
         .string()
         .optional()
-        .describe("Anchore /check query context only."),
+        .describe(
+          "Anchore /check query context. Defaults to the selected image reference when available.",
+        ),
       base_digest: z
         .string()
         .optional()

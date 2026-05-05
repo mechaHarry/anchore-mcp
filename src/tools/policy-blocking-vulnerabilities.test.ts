@@ -31,6 +31,13 @@ function parsedToolPayload(result: Awaited<ReturnType<typeof runPolicyBlockingVu
   };
 }
 
+function okList(items: unknown[]): Response {
+  return new Response(JSON.stringify({ items }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 beforeEach(() => {
   vi.spyOn(safeLog, "logStderrLine").mockImplementation(() => {});
 });
@@ -404,6 +411,41 @@ describe("runPolicyBlockingVulnerabilities", () => {
     expect(policyUrl).toContain("/v2/images/sha256%3Aquery/check?");
     expect(policyUrl).toContain(`tag=${encodeURIComponent("docker.io/library/nginx:latest")}`);
     expect(policyUrl).toContain(`base_digest=${encodeURIComponent("sha256:base")}`);
+  });
+
+  it("uses the selected image reference as the policy tag when none is supplied", async () => {
+    const reference = "containers.example.com/psf/help-site:4";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        okList([
+          {
+            image_digest: "sha256:selected",
+            analyzed_at: "2026-04-24T00:00:00Z",
+            image_detail: [
+              {
+                registry: "containers.example.com",
+                repo: "psf/help-site",
+                tag: "4",
+                full_tag: reference,
+              },
+            ],
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "pass" }), { status: 200 }),
+      );
+
+    const result = await runPolicyBlockingVulnerabilities(
+      { image_repository: "psf/help-site" },
+      { connection: testConnection(), fetch: fetchMock },
+    );
+
+    expect(result.isError).not.toBe(true);
+    const policyUrl = String(fetchMock.mock.calls[1]?.[0]);
+    expect(policyUrl).toContain("/v2/images/sha256%3Aselected/check?");
+    expect(policyUrl).toContain(`tag=${encodeURIComponent(reference)}`);
   });
 
   it("does not include raw policy or vulnerability payload fields in the success payload", async () => {

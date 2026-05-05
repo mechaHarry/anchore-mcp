@@ -110,10 +110,14 @@ function policyBlockingSelectionMessage(message: string): string {
     : IMAGE_SELECTION_FAILURE_MESSAGE;
 }
 
-function policyQuery(args: PolicyBlockingVulnerabilitiesArgs): URLSearchParams {
+function policyQuery(
+  args: PolicyBlockingVulnerabilitiesArgs,
+  selectedImage: SelectedImage,
+): URLSearchParams {
   const query = new URLSearchParams();
-  if (args.tag?.trim()) {
-    query.set("tag", args.tag.trim());
+  const tag = args.tag?.trim() || selectedImage.reference?.trim();
+  if (tag) {
+    query.set("tag", tag);
   }
   if (args.base_digest?.trim()) {
     query.set("base_digest", args.base_digest.trim());
@@ -171,7 +175,7 @@ export async function runPolicyBlockingVulnerabilities(
       imagePolicyCheckPath(
         connection.apiVersion,
         selected.selectedImage.digest,
-        policyQuery(args),
+        policyQuery(args, selected.selectedImage),
       ),
     );
 

@@ -45,6 +45,12 @@ const REPOSITORY_KEYS = [
   "image_repository",
   "imageRepository",
 ] as const;
+const IMAGE_DETAIL_KEYS = [
+  "image_detail",
+  "imageDetail",
+  "image_details",
+  "imageDetails",
+] as const;
 
 const TIMESTAMP_KEYS = [
   "analyzed_at",
@@ -92,8 +98,70 @@ function stringFields(row: Record<string, unknown>, keys: readonly string[]): st
   return values;
 }
 
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function imageDetailRows(row: Record<string, unknown>): Array<Record<string, unknown>> {
+  const out: Array<Record<string, unknown>> = [];
+  for (const key of IMAGE_DETAIL_KEYS) {
+    const value = row[key];
+    const values = Array.isArray(value) ? value : [value];
+    for (const item of values) {
+      if (item !== null && typeof item === "object") {
+        out.push(item as Record<string, unknown>);
+      }
+    }
+  }
+  return out;
+}
+
+function derivedFullTagFromDetail(detail: Record<string, unknown>): string | undefined {
+  const registry = stringField(detail, "registry");
+  const repo = stringField(detail, "repo") ?? stringField(detail, "repository");
+  const tag = stringField(detail, "tag");
+  if (registry === undefined || repo === undefined || tag === undefined) {
+    return undefined;
+  }
+  return `${registry}/${repo}:${tag}`;
+}
+
+function detailReferences(detail: Record<string, unknown>): string[] {
+  const values = stringFields(detail, [
+    "fulltag",
+    "full_tag",
+    "image_tag",
+    "imageTag",
+  ]);
+  const derived = derivedFullTagFromDetail(detail);
+  if (derived !== undefined) {
+    values.push(derived);
+  }
+  return uniqueStrings(values);
+}
+
+function detailRepositories(detail: Record<string, unknown>): string[] {
+  const values = stringFields(detail, REPOSITORY_KEYS);
+  const registry = stringField(detail, "registry");
+  const repo = stringField(detail, "repo") ?? stringField(detail, "repository");
+  if (registry !== undefined && repo !== undefined) {
+    values.push(`${registry}/${repo}`);
+  }
+  for (const reference of detailReferences(detail)) {
+    const derived = stripTagFromReference(reference);
+    if (derived !== undefined) {
+      values.push(derived);
+    }
+  }
+  return uniqueStrings(values);
+}
+
 function referencesFromRow(row: Record<string, unknown>): string[] {
-  return stringFields(row, REFERENCE_KEYS);
+  const values = stringFields(row, REFERENCE_KEYS);
+  for (const detail of imageDetailRows(row)) {
+    values.push(...detailReferences(detail));
+  }
+  return uniqueStrings(values);
 }
 
 function timestampFromRow(
@@ -151,13 +219,24 @@ function validateRepository(repository: string): { ok: true } | { ok: false; mes
 
 function repositoriesFromRow(row: Record<string, unknown>): string[] {
   const repositories = stringFields(row, REPOSITORY_KEYS);
+  for (const detail of imageDetailRows(row)) {
+    repositories.push(...detailRepositories(detail));
+  }
   for (const reference of referencesFromRow(row)) {
     const derived = stripTagFromReference(reference);
     if (derived !== undefined) {
       repositories.push(derived);
     }
   }
-  return repositories;
+  return uniqueStrings(repositories);
+}
+
+function referenceMatchesRepository(reference: string, repository: string): boolean {
+  const derived = stripTagFromReference(reference);
+  if (derived === undefined) {
+    return false;
+  }
+  return derived === repository || derived.endsWith(`/${repository}`);
 }
 
 function selectNewest(candidates: TimestampedCandidate[]): ImageSelectionResult {
@@ -296,8 +375,8 @@ async function selectByRepository(
     if (digest === undefined || timestamp === undefined) {
       continue;
     }
-    const reference = referencesFromRow(objectRow).find(
-      (candidate) => stripTagFromReference(candidate) === repository,
+    const reference = referencesFromRow(objectRow).find((candidate) =>
+      referenceMatchesRepository(candidate, repository),
     );
     candidates.push({
       digest,

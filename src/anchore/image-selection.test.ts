@@ -211,6 +211,90 @@ describe("selectImageForPolicyBlockingReport", () => {
     });
   });
 
+  it("matches repository metadata from nested v2 image_detail rows", async () => {
+    const repository = "psf/help-site";
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          image_digest: "sha256:old",
+          analyzed_at: "2026-04-23T00:00:00Z",
+          image_detail: [
+            {
+              registry: "containers.example.com",
+              repo: repository,
+              tag: "3",
+              full_tag: "containers.example.com/psf/help-site:3",
+            },
+          ],
+        },
+        {
+          image_digest: "sha256:new",
+          analyzed_at: "2026-04-24T00:00:00Z",
+          image_detail: [
+            {
+              registry: "containers.example.com",
+              repo: repository,
+              tag: "4",
+              full_tag: "containers.example.com/psf/help-site:4",
+            },
+          ],
+        },
+      ]),
+    );
+
+    const result = await selectImageForPolicyBlockingReport(
+      { image_repository: repository },
+      testConn(),
+      { fetch: fetchMock },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      selectedImage: {
+        digest: "sha256:new",
+        reference: "containers.example.com/psf/help-site:4",
+        repository,
+        analysisTimestamp: "2026-04-24T00:00:00Z",
+      },
+    });
+  });
+
+  it("matches exact references from nested v2 image_detail rows", async () => {
+    const requested = "containers.example.com/psf/help-site:4";
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          image_digest: "sha256:nested-reference",
+          analyzed_at: "2026-04-24T00:00:00Z",
+          image_detail: [
+            {
+              registry: "containers.example.com",
+              repo: "psf/help-site",
+              tag: "4",
+              full_tag: requested,
+            },
+          ],
+        },
+      ]),
+    );
+
+    const result = await selectImageForPolicyBlockingReport(
+      { image_reference: requested },
+      testConn(),
+      { fetch: fetchMock },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      selectedImage: {
+        digest: "sha256:nested-reference",
+        reference: requested,
+        repository: "containers.example.com/psf/help-site",
+        analysisTimestamp: "2026-04-24T00:00:00Z",
+      },
+    });
+  });
+
   it("returns image_selection_error when the newest timestamp is tied across digests", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       okList([

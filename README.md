@@ -62,6 +62,8 @@ Inputs accept exactly one image locator:
 - `image_reference` (`registry/repo:tag`)
 - `image_repository` (`registry/repo`, newest analyzed match)
 
+When the selected image has a full tag, the tool uses that reference as Anchore `/check` `tag` context unless `tag` is supplied explicitly. This keeps the HTTP path digest-centric while avoiding a second lookup for deployments that require tag context during policy evaluation.
+
 The tool calls Anchore policy check first. If policy is already green, it returns `policyRemediationStatus: "already_green"` with an empty `blockingVulnerabilities` list. If policy is red, it returns only compact vulnerabilities that can be joined to blocking policy findings by exact CVE/vulnerability id or exact package identity. It does not return unrelated policy findings, broad high/critical vulnerability lists, raw policy or vulnerability payloads, or SBOM-inferred file paths.
 
 ## Run (stdio MCP)
