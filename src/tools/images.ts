@@ -1,6 +1,14 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { imagesListPath } from "../anchore/api-paths.js";
 import { createAnchoreClient } from "../anchore/client.js";
+import {
+  FALLBACK_LIST_IMAGES_QUERY_KEYS,
+  getListImagesQueryParameterAllowlist,
+  mergeListImagesQueryParams,
+} from "../anchore/openapi-list-images-params.js";
+import {
+  DEFAULT_LIST_IMAGES_CAPS,
+  fetchAllListImagesPages,
+} from "../anchore/list-images-pages.js";
 import { loadConnectionFromEnv } from "../config/connection.js";
 import { logStderrLine } from "../logging/safe-log.js";
 import type { AnchoreToolRunOptions } from "./anchore-run-options.js";
@@ -13,33 +21,45 @@ export type ListImagesArgs = {
   fulltag?: string;
   /** If supported, filter by CVE id (e.g. CVE-2024-1234). */
   vulnerability_id?: string;
+  /**
+   * Extra query parameters for GET /v1|/v2/images. Keys must appear in the deployment
+   * OpenAPI for this route (or the MCP fallback allowlist). Unknown keys are dropped and reported in the summary.
+   */
+  list_query?: Record<string, string>;
 };
 
-function summarizeImages(data: unknown): string {
+function summarizeImages(data: unknown, listQueryNote?: string): string {
+  const note = listQueryNote !== undefined ? ` ${listQueryNote}` : "";
   if (data !== null && typeof data === "object") {
     if (
       "images" in data &&
       Array.isArray((data as { images: unknown }).images)
     ) {
       const n = (data as { images: unknown[] }).images.length;
-      return n === 0
-        ? "No images matched the query."
-        : `Found ${n} image record(s) in Anchore.`;
+      const base =
+        n === 0
+          ? "No images matched the query."
+          : `Found ${n} image record(s) in Anchore.`;
+      return `${base}${note}`;
     }
     /** V2 list responses often use `items` (see Anchore v1→v2 migration). */
     if ("items" in data && Array.isArray((data as { items: unknown }).items)) {
       const n = (data as { items: unknown[] }).items.length;
-      return n === 0
-        ? "No images matched the query."
-        : `Found ${n} image record(s) in Anchore.`;
+      const base =
+        n === 0
+          ? "No images matched the query."
+          : `Found ${n} image record(s) in Anchore.`;
+      return `${base}${note}`;
     }
   }
   if (Array.isArray(data)) {
-    return data.length === 0
-      ? "No images matched the query."
-      : `Found ${data.length} image record(s) in Anchore.`;
+    const base =
+      data.length === 0
+        ? "No images matched the query."
+        : `Found ${data.length} image record(s) in Anchore.`;
+    return `${base}${note}`;
   }
-  return "Anchore returned image list data.";
+  return `Anchore returned image list data.${note}`;
 }
 
 /**
@@ -76,22 +96,61 @@ export async function runListImages(
 
   try {
     const client = createAnchoreClient(connection, { fetch: options?.fetch });
-    const params = new URLSearchParams();
-    if (args.fulltag) {
-      params.set("fulltag", args.fulltag);
+    const listQueryKeys =
+      args.list_query !== undefined ? Object.keys(args.list_query) : [];
+    const allowlist =
+      listQueryKeys.length > 0
+        ? await getListImagesQueryParameterAllowlist(connection, {
+            fetch: options?.fetch,
+          })
+        : new Set(FALLBACK_LIST_IMAGES_QUERY_KEYS);
+    const { params, rejectedKeys } = mergeListImagesQueryParams(args, allowlist);
+    let listQueryNote: string | undefined;
+    if (rejectedKeys.length > 0) {
+      const sample = rejectedKeys.slice(0, 8).join(", ");
+      const more =
+        rejectedKeys.length > 8 ? ` (+${rejectedKeys.length - 8} more)` : "";
+      listQueryNote = `Note: dropped ${rejectedKeys.length} list_query key(s) not allowlisted for this deployment: ${sample}${more}.`;
     }
-    if (args.vulnerability_id) {
-      params.set("vulnerability_id", args.vulnerability_id);
+    const {
+      mergedBody,
+      enumerationIncomplete,
+      incompleteReason,
+    } = await fetchAllListImagesPages(
+      client,
+      connection,
+      params,
+      DEFAULT_LIST_IMAGES_CAPS,
+    );
+    let data: unknown = mergedBody;
+    if (enumerationIncomplete) {
+      if (Array.isArray(data)) {
+        data = {
+          items: data,
+          listEnumerationIncomplete: true,
+          listEnumerationReason: incompleteReason,
+        };
+      } else if (data !== null && typeof data === "object") {
+        data = {
+          ...(data as Record<string, unknown>),
+          listEnumerationIncomplete: true,
+          listEnumerationReason: incompleteReason,
+        };
+      } else {
+        data = {
+          merged: mergedBody,
+          listEnumerationIncomplete: true,
+          listEnumerationReason: incompleteReason,
+        };
+      }
     }
-    const path = imagesListPath(connection.apiVersion, params);
-    const data = await client.getJson<unknown>(path);
     const ctx: ToolContextFields = {
       baseUrl: connection.baseUrl,
       account: connection.account,
       apiVersion: connection.apiVersion,
       action: "list images",
     };
-    const summaryLine = summarizeImages(data);
+    const summaryLine = summarizeImages(data, listQueryNote);
     const text = formatAnchoreToolJson(ctx, summaryLine, data);
     return { content: [{ type: "text", text }] };
   } catch (err) {

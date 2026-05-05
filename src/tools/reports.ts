@@ -7,9 +7,11 @@ import type { AnchoreToolRunOptions } from "./anchore-run-options.js";
 import { anchoreFailureMessage } from "./anchore-tool-error.js";
 import type { ToolContextFields } from "./context.js";
 import { formatAnchoreToolJson } from "./format.js";
+import { resolveDigestForAnchorePath } from "./image-input.js";
 
 export type ImagePolicyCheckArgs = {
-  image_digest: string;
+  image_digest?: string;
+  image_reference?: string;
   /** When required by your Anchore version, the image tag (e.g. `docker.io/library/nginx:latest`). */
   tag?: string;
   /** Optional base image digest for comparison policy checks. */
@@ -17,7 +19,8 @@ export type ImagePolicyCheckArgs = {
 };
 
 export type ImageDetailArgs = {
-  image_digest: string;
+  image_digest?: string;
+  image_reference?: string;
 };
 
 function summarizePolicy(data: unknown): string {
@@ -51,23 +54,6 @@ export async function runImagePolicyCheck(
   args: ImagePolicyCheckArgs,
   options?: AnchoreToolRunOptions,
 ): Promise<CallToolResult> {
-  const digest = args.image_digest.trim();
-  if (!digest) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(
-            { error: true, message: "image_digest is required." },
-            null,
-            2,
-          ),
-        },
-      ],
-      isError: true,
-    };
-  }
-
   let connection;
   try {
     connection = options?.connection ?? loadConnectionFromEnv();
@@ -93,6 +79,17 @@ export async function runImagePolicyCheck(
     };
   }
 
+  const resolved = await resolveDigestForAnchorePath(
+    args,
+    connection,
+    options,
+    "image policy check",
+  );
+  if (!resolved.ok) {
+    return resolved.result;
+  }
+  const { digest, resolvedFromImageReference } = resolved;
+
   try {
     const client = createAnchoreClient(connection, { fetch: options?.fetch });
     const query = new URLSearchParams();
@@ -109,6 +106,9 @@ export async function runImagePolicyCheck(
       account: connection.account,
       apiVersion: connection.apiVersion,
       action: "image policy check",
+      ...(resolvedFromImageReference !== undefined
+        ? { resolvedFromImageReference }
+        : {}),
     };
     const summaryLine = summarizePolicy(data);
     const text = formatAnchoreToolJson(ctx, summaryLine, data);
@@ -138,23 +138,6 @@ export async function runImageDetail(
   args: ImageDetailArgs,
   options?: AnchoreToolRunOptions,
 ): Promise<CallToolResult> {
-  const digest = args.image_digest.trim();
-  if (!digest) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(
-            { error: true, message: "image_digest is required." },
-            null,
-            2,
-          ),
-        },
-      ],
-      isError: true,
-    };
-  }
-
   let connection;
   try {
     connection = options?.connection ?? loadConnectionFromEnv();
@@ -180,6 +163,17 @@ export async function runImageDetail(
     };
   }
 
+  const resolved = await resolveDigestForAnchorePath(
+    args,
+    connection,
+    options,
+    "image detail",
+  );
+  if (!resolved.ok) {
+    return resolved.result;
+  }
+  const { digest, resolvedFromImageReference } = resolved;
+
   try {
     const client = createAnchoreClient(connection, { fetch: options?.fetch });
     const path = imageByDigestPath(connection.apiVersion, digest);
@@ -191,6 +185,9 @@ export async function runImageDetail(
       account: connection.account,
       apiVersion: connection.apiVersion,
       action: "image detail",
+      ...(resolvedFromImageReference !== undefined
+        ? { resolvedFromImageReference }
+        : {}),
     };
     const summaryLine = summarizeImageDetail(data);
     const text = formatAnchoreToolJson(ctx, summaryLine, data, {

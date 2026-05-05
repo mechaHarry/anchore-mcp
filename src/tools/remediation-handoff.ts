@@ -12,6 +12,7 @@ import type { AnchoreToolRunOptions } from "./anchore-run-options.js";
 import { anchoreFailureMessage } from "./anchore-tool-error.js";
 import type { ToolContextFields } from "./context.js";
 import { formatAnchoreToolJson } from "./format.js";
+import { resolveDigestForAnchorePath } from "./image-input.js";
 
 /** Documented in `docs/remediation-handoff-schema.md`; bump together with schema. */
 export const REMEDIATION_HANDOFF_VERSION = "1.0.0" as const;
@@ -78,7 +79,8 @@ function summarizeRemediationHandoff(
 }
 
 export type RemediationHandoffArgs = {
-  image_digest: string;
+  image_digest?: string;
+  image_reference?: string;
   tag?: string;
   base_digest?: string;
   /** When false, skip GET .../check (bundle has no policy fields). Default true. */
@@ -93,23 +95,6 @@ export async function runRemediationHandoff(
   args: RemediationHandoffArgs,
   options?: AnchoreToolRunOptions,
 ): Promise<CallToolResult> {
-  const digest = args.image_digest.trim();
-  if (!digest) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(
-            { error: true, message: "image_digest is required." },
-            null,
-            2,
-          ),
-        },
-      ],
-      isError: true,
-    };
-  }
-
   const includePolicy = args.include_policy_check !== false;
 
   let connection;
@@ -136,6 +121,17 @@ export async function runRemediationHandoff(
       isError: true,
     };
   }
+
+  const resolved = await resolveDigestForAnchorePath(
+    args,
+    connection,
+    options,
+    "remediation handoff",
+  );
+  if (!resolved.ok) {
+    return resolved.result;
+  }
+  const { digest, resolvedFromImageReference } = resolved;
 
   try {
     const client = createAnchoreClient(connection, { fetch: options?.fetch });
@@ -196,6 +192,9 @@ export async function runRemediationHandoff(
       account: connection.account,
       apiVersion: connection.apiVersion,
       action: "remediation handoff",
+      ...(resolvedFromImageReference !== undefined
+        ? { resolvedFromImageReference }
+        : {}),
     };
     const summaryLine = summarizeRemediationHandoff(
       digest,

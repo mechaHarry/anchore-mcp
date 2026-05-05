@@ -10,6 +10,7 @@ export type AnchoreToolPayload = {
     action: string;
     /** Same as `toolContextSummary` for R8 visibility. */
     summaryLine: string;
+    resolvedFromImageReference?: string;
   };
   /** R14-masked textual summary (safe for chat). */
   summary: string;
@@ -39,6 +40,9 @@ export function formatAnchoreToolJson(
       ...(ctx.account !== undefined ? { account: ctx.account } : {}),
       action: ctx.action,
       summaryLine: toolContextSummary(ctx),
+      ...(ctx.resolvedFromImageReference !== undefined
+        ? { resolvedFromImageReference: ctx.resolvedFromImageReference }
+        : {}),
     },
     summary,
     warnings,

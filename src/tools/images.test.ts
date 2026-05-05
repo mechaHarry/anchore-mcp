@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearOpenApiCacheForTests } from "../anchore/openapi-fetch.js";
 import type { ResolvedAnchoreConnection } from "../config/connection.js";
 import { formatAnchoreToolJson } from "./format.js";
 import { runListImages } from "./images.js";
@@ -13,7 +14,13 @@ function testConnection(apiVersion: "v1" | "v2" = "v2"): ResolvedAnchoreConnecti
   };
 }
 
+beforeEach(() => {
+  process.env.ANCHORE_HTTP_MAX_RETRIES = "0";
+});
+
 afterEach(() => {
+  clearOpenApiCacheForTests();
+  delete process.env.ANCHORE_HTTP_MAX_RETRIES;
   vi.restoreAllMocks();
 });
 
@@ -79,6 +86,85 @@ describe("runListImages", () => {
     const text = result.content?.[0]?.type === "text" ? result.content[0].text : "";
     const parsed = JSON.parse(text) as { summary: string };
     expect(parsed.summary).toMatch(/No images matched/i);
+  });
+
+  it("merges multiple pages when Link rel=next is present", async () => {
+    const connection = testConnection();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ images: [{ imageDigest: "sha256:aa" }] }), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            Link: '</v2/images?p=2>; rel="next"',
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ images: [{ imageDigest: "sha256:bb" }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    const result = await runListImages({}, { connection, fetch: fetchMock });
+    expect(result.isError).not.toBe(true);
+    const text = result.content?.[0]?.type === "text" ? result.content[0].text : "";
+    const parsed = JSON.parse(text) as { anchore: { images: unknown[] } };
+    expect(parsed.anchore.images).toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("merges allowlisted list_query into the images request URL", async () => {
+    const connection = testConnection();
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/openapi.json")) {
+        return new Response(
+          JSON.stringify({
+            paths: {
+              "/v2/images": {
+                get: {
+                  parameters: [{ name: "name", in: "query" }],
+                },
+              },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ images: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    await runListImages(
+      { list_query: { name: "my-filter" } },
+      { connection, fetch: fetchMock },
+    );
+    const imagesCall = fetchMock.mock.calls.find((c) =>
+      String(c[0]).includes("/v2/images"),
+    );
+    expect(imagesCall).toBeDefined();
+    expect(String(imagesCall![0])).toContain("name=my-filter");
+  });
+
+  it("notes rejected list_query keys in the summary", async () => {
+    const connection = testConnection();
+    const fetchMock = vi.fn().mockImplementation(
+      () =>
+        new Response(JSON.stringify({ images: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    const result = await runListImages(
+      { list_query: { __not_in_allowlist__: "x" } },
+      { connection, fetch: fetchMock },
+    );
+    const text = result.content?.[0]?.type === "text" ? result.content[0].text : "";
+    const parsed = JSON.parse(text) as { summary: string };
+    expect(parsed.summary).toMatch(/dropped/i);
+    expect(parsed.summary).toMatch(/__not_in_allowlist__/);
   });
 
   it("appends query parameters when provided", async () => {

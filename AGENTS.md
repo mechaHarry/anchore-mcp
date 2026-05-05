@@ -39,7 +39,7 @@ This repo compounds institutional knowledge in **two layers**. Agents and humans
 | `src/index.ts` | Entry: dynamic `import("./mcp/server.js")`, catch startup errors → `[anchore-mcp] startup:` on stderr. **No** global `uncaughtException` handlers (avoid interfering with IDE child probes). |
 | `src/mcp/server.ts` | `McpServer` + `StdioServerTransport`; registers tools. |
 | `src/config/connection.ts` | `loadConnectionFromEnv()` → `ANCHORE_URL`, `ANCHORE_TOKEN`, optional `ANCHORE_ACCOUNT`, `ANCHORE_API_VERSION` (`v2` default). |
-| `src/anchore/client.ts` | `fetch` + Basic auth (`_api_key` + token), optional `x-anchore-account`. |
+| `src/anchore/client.ts` | `fetch` + Basic auth (`_api_key` + token), optional `x-anchore-account`; **idempotent GET** retries for transient 429/502–504 + network errors (`ANCHORE_HTTP_*`, no timeout retry). |
 | `src/anchore/api-paths.ts` | Versioned REST paths: **v2** vs **v1**. |
 | `src/tools/*` | Tools call Anchore; `formatAnchoreToolJson` for R8 + R14; SBOM / image detail / **remediation handoff** include **sizeBytes** (R15). Handoff: `remediation-handoff.ts` + [docs/remediation-handoff-schema.md](docs/remediation-handoff-schema.md). |
 | `src/pii/*`, `src/logging/safe-log.ts` | R14 mask/warn; R13 stderr redaction / line cap. |
