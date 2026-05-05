@@ -27,4 +27,17 @@ describe("createMcpServer", () => {
     expect(server).toBeDefined();
     expect(server.isConnected()).toBe(false);
   });
+
+  it("registers the policy-blocking vulnerability tool", () => {
+    const server = createMcpServer({ connection: sampleConnection });
+    const registered = Object.keys(
+      (
+        server as unknown as {
+          _registeredTools: Record<string, unknown>;
+        }
+      )._registeredTools,
+    );
+
+    expect(registered).toContain("anchore_policy_blocking_vulnerabilities");
+  });
 });

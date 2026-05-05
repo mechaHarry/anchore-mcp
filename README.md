@@ -37,8 +37,36 @@ Each MCP process talks to **one** Anchore deployment. Set environment variables 
 | `ANCHORE_TOKEN` | Yes | API token (sent as Basic auth with username `_api_key`) |
 | `ANCHORE_ACCOUNT` | No | Optional account name (`x-anchore-account`) when your deployment uses it |
 | `ANCHORE_API_VERSION` | No | `v2` (default) or `v1`. Enterprise 5+ expects **v2** paths (`/v2/images`, etc.). Use `v1` only for legacy installs. Confirm with `https://<host>/v2/openapi.json` on your deployment. |
+| `ANCHORE_HTTP_MAX_RETRIES` | No | Extra attempts after a failed **idempotent GET** (default `2`). Retries **transient** HTTP statuses (429, 502–504) and network errors, with exponential backoff + jitter. **Timeouts are not retried.** |
+| `ANCHORE_HTTP_RETRY_BASE_MS` | No | Backoff base in ms (default `300`). |
+| `ANCHORE_HTTP_RETRY_MAX_MS` | No | Backoff cap in ms (default `8000`). |
 
 Need **multiple** Anchore deployments? Add **multiple** MCP server entries in your IDE, each with its own `command`/`args` and **different** `env` (different `ANCHORE_URL` and token).
+
+For a repo-local Codex setup that other agents can reuse without committing secrets, see [examples/codex-agent-setup](examples/codex-agent-setup/README.md).
+
+### Image digest vs reference
+
+Anchore’s per-image HTTP routes use the **digest** in the path (`/v2/images/{digest}/…`). For convenience, digest-keyed tools also accept **`image_reference`**: a fully qualified image string (`registry/repo:tag`, e.g. `docker.io/library/nginx:latest`). The MCP resolves that to a digest by calling `GET /v2/images?fulltag=…` (paginated client-side) before the real request. Short names like `nginx:latest` are rejected; use a registry-qualified reference.
+
+- Provide **exactly one** of `image_digest` or `image_reference` (not both, not neither).
+- **`anchore_image_policy_check`** and **`anchore_remediation_handoff`** still have an optional **`tag`** parameter for Anchore’s `/check` query when your deployment requires it — that is separate from `image_reference` and is never auto-filled from it.
+- **`anchore_list_images`** merges paged list responses until the deployment indicates there is no next page. If internal caps stop the walk early, the tool JSON may include `listEnumerationIncomplete` / `listEnumerationReason`. Resolution uses its own caps and may return `imageReferenceResolution` with `enumeration_incomplete` when the catalog cannot be fully scanned.
+- **List filters:** Besides `fulltag` and `vulnerability_id`, you can pass **`list_query`**: a map of query parameter names to string values. Allowed keys are the union of a small built-in set (`fulltag`, `limit`, `name`, `registry`, …) and any `in: query` parameters defined for `GET /v1|/v2/images` in your deployment OpenAPI (fetched when `list_query` is non-empty, then cached). Unknown keys are dropped and noted in the summary line.
+
+### Policy-blocking vulnerabilities
+
+`anchore_policy_blocking_vulnerabilities` is intended for downstream agents that need the minimal vulnerability set whose remediation would change Anchore policy from red to green.
+
+Inputs accept exactly one image locator:
+
+- `image_digest`
+- `image_reference` (`registry/repo:tag`)
+- `image_repository` (`registry/repo`, newest analyzed match)
+
+When the selected image has a full tag, the tool uses that reference as Anchore `/check` `tag` context unless `tag` is supplied explicitly. This keeps the HTTP path digest-centric while avoiding a second lookup for deployments that require tag context during policy evaluation.
+
+The tool calls Anchore policy check first. If policy is already green, it returns `policyRemediationStatus: "already_green"` with an empty `blockingVulnerabilities` list. If policy is red, it returns only compact vulnerabilities that can be joined to blocking policy findings by exact CVE/vulnerability id or exact package identity. It does not return unrelated policy findings, broad high/critical vulnerability lists, raw policy or vulnerability payloads, or SBOM-inferred file paths.
 
 ## Run (stdio MCP)
 

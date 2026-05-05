@@ -13,6 +13,8 @@ export type ToolContextFields = {
   apiVersion: AnchoreApiVersion;
   /** Short verb phrase, e.g. "list images", "get vulnerabilities". */
   action: string;
+  /** When digest was resolved from image_reference (R6). */
+  resolvedFromImageReference?: string;
 };
 
 /** Single-line summary for embedding in text or structured `context` fields. */

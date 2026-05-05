@@ -8,13 +8,17 @@ import type { AnchoreToolRunOptions } from "./anchore-run-options.js";
 import { anchoreFailureMessage } from "./anchore-tool-error.js";
 import type { ToolContextFields } from "./context.js";
 import { formatAnchoreToolJson } from "./format.js";
+import { resolveDigestForAnchorePath } from "./image-input.js";
 
 const DEFAULT_MAX_RESPONSE_BYTES = 20_000_000;
 
 export type ImageSbomFormat = "normal" | "spdx" | "cyclonedx";
 
 export type ImageSbomArgs = {
-  image_digest: string;
+  /** Use this or image_reference, not both. */
+  image_digest?: string;
+  /** Fully qualified registry/repo:tag; MCP resolves to digest (same SBOM path as digest). */
+  image_reference?: string;
   /** `normal` = Syft native JSON; `spdx` / `cyclonedx` = standard interchange JSON. */
   format: ImageSbomFormat;
   /**
@@ -50,23 +54,6 @@ export async function runImageSbom(
   args: ImageSbomArgs,
   options?: AnchoreToolRunOptions,
 ): Promise<CallToolResult> {
-  const digest = args.image_digest.trim();
-  if (!digest) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(
-            { error: true, message: "image_digest is required." },
-            null,
-            2,
-          ),
-        },
-      ],
-      isError: true,
-    };
-  }
-
   let connection;
   try {
     connection = options?.connection ?? loadConnectionFromEnv();
@@ -92,6 +79,17 @@ export async function runImageSbom(
     };
   }
 
+  const resolved = await resolveDigestForAnchorePath(
+    args,
+    connection,
+    options,
+    `image SBOM (${args.format})`,
+  );
+  if (!resolved.ok) {
+    return resolved.result;
+  }
+  const { digest, resolvedFromImageReference } = resolved;
+
   const pathFormat = mapToPathFormat(args.format);
   const maxBytes = args.max_response_bytes ?? DEFAULT_MAX_RESPONSE_BYTES;
 
@@ -107,6 +105,9 @@ export async function runImageSbom(
       account: connection.account,
       apiVersion: connection.apiVersion,
       action: `image SBOM (${args.format})`,
+      ...(resolvedFromImageReference !== undefined
+        ? { resolvedFromImageReference }
+        : {}),
     };
     const summaryLine = summarizeSbom(args.format, pathFormat, byteLength);
     const text = formatAnchoreToolJson(ctx, summaryLine, data, {

@@ -7,6 +7,7 @@ import {
   loadConnectionFromEnv,
 } from "../config/connection.js";
 import { runListImages } from "../tools/images.js";
+import { runPolicyBlockingVulnerabilities } from "../tools/policy-blocking-vulnerabilities.js";
 import { runRemediationHandoff } from "../tools/remediation-handoff.js";
 import { runImageDetail, runImagePolicyCheck } from "../tools/reports.js";
 import { runImageSbom } from "../tools/sbom.js";
@@ -64,7 +65,7 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
 
   server.tool(
     "anchore_list_images",
-    "List analyzed images (default GET /v2/images; set ANCHORE_API_VERSION=v1 for legacy /v1/images). Optional query filters depend on your Anchore build — see your deployment /v2/openapi.json.",
+    "List analyzed images (default GET /v2/images; set ANCHORE_API_VERSION=v1 for legacy /v1/images). The MCP merges paginated responses client-side; if the catalog is larger than internal caps, the JSON includes listEnumerationIncomplete. Optional query filters depend on your Anchore build — see your deployment /v2/openapi.json.",
     {
       fulltag: z
         .string()
@@ -74,18 +75,25 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
         .string()
         .optional()
         .describe("When supported, filter by CVE id (e.g. CVE-2024-1234)"),
+      list_query: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe(
+          "Extra GET /v1|/v2/images query params (keys must match deployment OpenAPI or MCP fallback allowlist).",
+        ),
     },
     async (args) => runListImages(args, { connection: options.connection }),
   );
 
   server.tool(
     "anchore_image_vulnerabilities",
-    "List vulnerabilities for an image digest (default GET /v2/images/{digest}/vuln/all; v1 uses .../vulnerabilities). Set ANCHORE_API_VERSION if needed.",
+    "List vulnerabilities for an image (default GET /v2/images/{digest}/vuln/all; v1 uses .../vulnerabilities). Pass exactly one of image_digest or image_reference (fully qualified registry/repo:tag to resolve in the MCP). Set ANCHORE_API_VERSION if needed.",
     {
-      image_digest: z
+      image_digest: z.string().optional().describe("Image digest, e.g. sha256:…"),
+      image_reference: z
         .string()
-        .min(1)
-        .describe("Image digest, e.g. sha256:…"),
+        .optional()
+        .describe("Fully qualified image reference (registry/repo:tag); MCP resolves via list+fulltag."),
     },
     async (args) =>
       runImageVulnerabilities(args, { connection: options.connection }),
@@ -93,12 +101,13 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
 
   server.tool(
     "anchore_image_sbom",
-    "Fetch SBOM JSON for an analyzed image digest. Uses GET /v2/images/{digest}/sboms/{native-json|spdx-json|cyclonedx-json} (Syft native, SPDX JSON, or CycloneDX JSON). Responses include sizeBytes (R15). Default max_response_bytes=20MB — increase explicitly for huge SBOMs; otherwise the tool fails with a clear error (no silent truncation). Confirm paths on your deployment /v2/openapi.json.",
+    "Fetch SBOM JSON for an analyzed image. Anchore routes are digest-keyed (GET /v2/images/{digest}/sboms/...). Pass exactly one of image_digest or image_reference (FQDN registry/repo:tag); the MCP resolves references before the SBOM GET. Responses include sizeBytes (R15). Default max_response_bytes=20MB — increase explicitly for huge SBOMs; otherwise the tool fails with a clear error (no silent truncation). Confirm paths on your deployment /v2/openapi.json.",
     {
-      image_digest: z
+      image_digest: z.string().optional().describe("Image digest, e.g. sha256:…"),
+      image_reference: z
         .string()
-        .min(1)
-        .describe("Image digest, e.g. sha256:…"),
+        .optional()
+        .describe("Fully qualified image reference; MCP resolves to digest before SBOM GET."),
       format: z
         .enum(["normal", "spdx", "cyclonedx"])
         .describe(
@@ -119,16 +128,19 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
 
   server.tool(
     "anchore_image_policy_check",
-    "Policy compliance evaluation for an image (GET /v2/images/{digest}/check). Pass tag when your Anchore version requires it. Optional base_digest for base-image comparison. Returns gate findings — see Anchore policy docs.",
+    "Policy compliance evaluation (GET /v2/images/{digest}/check). Pass exactly one of image_digest or image_reference for the path digest. Optional tag is only for Anchore /check query context — not a substitute for the path digest and not auto-filled from image_reference.",
     {
-      image_digest: z
+      image_digest: z.string().optional().describe("Image digest for the policy path, e.g. sha256:…"),
+      image_reference: z
         .string()
-        .min(1)
-        .describe("Image digest, e.g. sha256:…"),
+        .optional()
+        .describe("FQDN registry/repo:tag; MCP resolves to digest for the path."),
       tag: z
         .string()
         .optional()
-        .describe("Full image tag if required, e.g. docker.io/library/nginx:latest"),
+        .describe(
+          "Full image tag for /check query if your Anchore version requires it (separate from image_reference).",
+        ),
       base_digest: z
         .string()
         .optional()
@@ -139,30 +151,66 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
   );
 
   server.tool(
-    "anchore_image_detail",
-    "Single image analysis record (GET /v2/images/{digest}) — tags, distro, layers, status; exact fields depend on deployment. Includes sizeBytes for the JSON payload (R15).",
+    "anchore_policy_blocking_vulnerabilities",
+    "Return only vulnerability remediations proven to change an image policy from red to green. Pass exactly one of image_digest, image_reference, or image_repository. When a reference is resolved or selected, it is used as Anchore /check tag context unless tag is supplied explicitly.",
     {
-      image_digest: z
+      image_digest: z.string().optional().describe("Digest locator."),
+      image_reference: z
         .string()
-        .min(1)
-        .describe("Image digest, e.g. sha256:…"),
+        .optional()
+        .describe(
+          "Fully qualified registry/repo:tag; newest analyzed matching digest selected.",
+        ),
+      image_repository: z
+        .string()
+        .optional()
+        .describe(
+          "Qualified registry/repository without tag; newest analyzed matching image selected.",
+        ),
+      tag: z
+        .string()
+        .optional()
+        .describe(
+          "Anchore /check query context. Defaults to the selected image reference when available.",
+        ),
+      base_digest: z
+        .string()
+        .optional()
+        .describe("Anchore /check comparison context only."),
+    },
+    async (args) =>
+      runPolicyBlockingVulnerabilities(args, {
+        connection: options.connection,
+      }),
+  );
+
+  server.tool(
+    "anchore_image_detail",
+    "Single image analysis record (GET /v2/images/{digest}). Pass exactly one of image_digest or image_reference (FQDN); the MCP resolves references to a digest. Includes sizeBytes for the JSON payload (R15).",
+    {
+      image_digest: z.string().optional().describe("Image digest, e.g. sha256:…"),
+      image_reference: z
+        .string()
+        .optional()
+        .describe("Fully qualified image reference; MCP resolves to digest."),
     },
     async (args) => runImageDetail(args, { connection: options.connection }),
   );
 
   server.tool(
     "anchore_remediation_handoff",
-    "Build a versioned remediation handoff bundle (R7): image detail + vulnerabilities + optional policy check in one JSON payload. See docs/remediation-handoff-schema.md. No repo routing fields — consumers attach org metadata. R8 context + R15 total sizeBytes.",
+    "Build a versioned remediation handoff bundle (R7): image detail + vulnerabilities + optional policy check. Pass exactly one of image_digest or image_reference (FQDN). Optional tag is only for the policy /check call when required — not auto-filled from image_reference. See docs/remediation-handoff-schema.md. R8 context + R15 total sizeBytes.",
     {
-      image_digest: z
+      image_digest: z.string().optional().describe("Image digest, e.g. sha256:…"),
+      image_reference: z
         .string()
-        .min(1)
-        .describe("Image digest, e.g. sha256:…"),
+        .optional()
+        .describe("Fully qualified image reference; MCP resolves to digest."),
       tag: z
         .string()
         .optional()
         .describe(
-          "Full image tag for policy check when your Anchore version requires it",
+          "Full image tag for policy check when your Anchore version requires it (orthogonal to image_reference).",
         ),
       base_digest: z
         .string()

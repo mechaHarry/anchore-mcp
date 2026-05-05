@@ -7,10 +7,13 @@ import type { AnchoreToolRunOptions } from "./anchore-run-options.js";
 import { anchoreFailureMessage } from "./anchore-tool-error.js";
 import type { ToolContextFields } from "./context.js";
 import { formatAnchoreToolJson } from "./format.js";
+import { resolveDigestForAnchorePath } from "./image-input.js";
 
 export type ImageVulnerabilitiesArgs = {
-  /** Image digest, e.g. sha256:… */
-  image_digest: string;
+  /** Use this or image_reference, not both. */
+  image_digest?: string;
+  /** Fully qualified registry/repo:tag; MCP resolves to digest. */
+  image_reference?: string;
 };
 
 function countVulnerabilityRecords(data: unknown): number | null {
@@ -48,23 +51,6 @@ export async function runImageVulnerabilities(
   args: ImageVulnerabilitiesArgs,
   options?: AnchoreToolRunOptions,
 ): Promise<CallToolResult> {
-  const digest = args.image_digest.trim();
-  if (!digest) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify(
-            { error: true, message: "image_digest is required." },
-            null,
-            2,
-          ),
-        },
-      ],
-      isError: true,
-    };
-  }
-
   let connection;
   try {
     connection = options?.connection ?? loadConnectionFromEnv();
@@ -90,6 +76,17 @@ export async function runImageVulnerabilities(
     };
   }
 
+  const resolved = await resolveDigestForAnchorePath(
+    args,
+    connection,
+    options,
+    "image vulnerabilities",
+  );
+  if (!resolved.ok) {
+    return resolved.result;
+  }
+  const { digest, resolvedFromImageReference } = resolved;
+
   try {
     const client = createAnchoreClient(connection, { fetch: options?.fetch });
     const path = imageVulnerabilitiesPath(connection.apiVersion, digest);
@@ -99,6 +96,9 @@ export async function runImageVulnerabilities(
       account: connection.account,
       apiVersion: connection.apiVersion,
       action: "image vulnerabilities",
+      ...(resolvedFromImageReference !== undefined
+        ? { resolvedFromImageReference }
+        : {}),
     };
     const summaryLine = summarizeVulnerabilities(data);
     const text = formatAnchoreToolJson(ctx, summaryLine, data);

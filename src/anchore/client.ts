@@ -7,12 +7,26 @@ import {
   AnchoreTimeoutError,
   userMessageForHttpStatus,
 } from "./errors.js";
+import {
+  backoffDelayMs,
+  getGetRetryPolicyFromEnv,
+  isTransientHttpStatus,
+  type GetRetryPolicy,
+  retryAfterDelayMs,
+  shouldRetryGet,
+  sleepMs,
+} from "./retry-policy.js";
 
 export type AnchoreClientOptions = {
   /** Override fetch (tests). */
   fetch?: typeof fetch;
   /** Default timeout for each request (ms). No retries on timeout. */
   defaultTimeoutMs?: number;
+  /**
+   * Retry policy for idempotent GETs. Defaults to env (`ANCHORE_HTTP_*`) via
+   * `getGetRetryPolicyFromEnv()` when omitted.
+   */
+  getRetryPolicy?: GetRetryPolicy;
 };
 
 export type GetJsonOptions = {
@@ -42,6 +56,7 @@ function buildAuthHeaders(conn: ResolvedAnchoreConnection): Headers {
 export class AnchoreClient {
   private readonly fetchImpl: typeof fetch;
   private readonly defaultTimeoutMs: number;
+  private readonly getRetryPolicy: GetRetryPolicy;
 
   constructor(
     private readonly connection: ResolvedAnchoreConnection,
@@ -49,6 +64,7 @@ export class AnchoreClient {
   ) {
     this.fetchImpl = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.defaultTimeoutMs = options.defaultTimeoutMs ?? 60_000;
+    this.getRetryPolicy = options.getRetryPolicy ?? getGetRetryPolicyFromEnv();
   }
 
   /**
@@ -66,64 +82,103 @@ export class AnchoreClient {
     path: string,
     init?: GetJsonOptions,
   ): Promise<{ data: T; byteLength: number }> {
+    const { data, byteLength } = await this.getJsonWithByteLengthAndHeaders<T>(
+      path,
+      init,
+    );
+    return { data, byteLength };
+  }
+
+  /**
+   * GET JSON with response headers (e.g. `Link` for paginated list routes).
+   */
+  async getJsonWithByteLengthAndHeaders<T>(
+    path: string,
+    init?: GetJsonOptions,
+  ): Promise<{ data: T; byteLength: number; responseHeaders: Headers }> {
+    const policy = this.getRetryPolicy;
+    const maxAttempts = policy.maxRetries + 1;
     const url = joinBaseAndPath(this.connection.baseUrl, path);
     const timeoutMs = init?.timeoutMs ?? this.defaultTimeoutMs;
     const maxResponseBytes = init?.maxResponseBytes;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
     const headers = buildAuthHeaders(this.connection);
 
-    try {
-      const res = await this.fetchImpl(url, {
-        method: "GET",
-        headers,
-        signal: controller.signal,
-      });
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-      if (!res.ok) {
-        throw new AnchoreHttpError(res.status, userMessageForHttpStatus(res.status), {
-          cause: undefined,
-        });
-      }
-
-      const text = await res.text();
-      const byteLength = Buffer.byteLength(text, "utf8");
-      if (maxResponseBytes !== undefined && byteLength > maxResponseBytes) {
-        throw new AnchoreResponseTooLargeError(byteLength, maxResponseBytes);
-      }
-      if (text.length === 0) {
-        return { data: {} as T, byteLength: 0 };
-      }
       try {
-        return { data: JSON.parse(text) as T, byteLength };
-      } catch (e) {
-        throw new AnchoreInvalidResponseError(
-          "Anchore returned a non-JSON response for this endpoint.",
-          { cause: e },
-        );
-      }
-    } catch (e: unknown) {
-      if (
-        e instanceof AnchoreHttpError ||
-        e instanceof AnchoreInvalidResponseError ||
-        e instanceof AnchoreResponseTooLargeError
-      ) {
+        const res = await this.fetchImpl(url, {
+          method: "GET",
+          headers,
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const status = res.status;
+          if (
+            attempt < maxAttempts - 1 &&
+            isTransientHttpStatus(status)
+          ) {
+            const ra =
+              status === 429 ? retryAfterDelayMs(res.headers) : undefined;
+            await sleepMs(backoffDelayMs(attempt, policy, ra));
+            continue;
+          }
+          throw new AnchoreHttpError(status, userMessageForHttpStatus(status), {
+            cause: undefined,
+          });
+        }
+
+        const text = await res.text();
+        const byteLength = Buffer.byteLength(text, "utf8");
+        if (maxResponseBytes !== undefined && byteLength > maxResponseBytes) {
+          throw new AnchoreResponseTooLargeError(byteLength, maxResponseBytes);
+        }
+        if (text.length === 0) {
+          return { data: {} as T, byteLength: 0, responseHeaders: res.headers };
+        }
+        try {
+          return {
+            data: JSON.parse(text) as T,
+            byteLength,
+            responseHeaders: res.headers,
+          };
+        } catch (e) {
+          throw new AnchoreInvalidResponseError(
+            "Anchore returned a non-JSON response for this endpoint.",
+            { cause: e },
+          );
+        }
+      } catch (e: unknown) {
+        if (
+          e instanceof AnchoreHttpError ||
+          e instanceof AnchoreInvalidResponseError ||
+          e instanceof AnchoreResponseTooLargeError
+        ) {
+          throw e;
+        }
+        if (isAbortError(e)) {
+          throw new AnchoreTimeoutError(timeoutMs, { cause: e });
+        }
+        if (e instanceof TypeError) {
+          const netErr = new AnchoreNetworkError(
+            "Could not reach Anchore — check base URL, TLS, and network.",
+            { cause: e },
+          );
+          if (shouldRetryGet(netErr, attempt, policy)) {
+            await sleepMs(backoffDelayMs(attempt, policy));
+            continue;
+          }
+          throw netErr;
+        }
         throw e;
+      } finally {
+        clearTimeout(timeout);
       }
-      if (isAbortError(e)) {
-        throw new AnchoreTimeoutError(timeoutMs, { cause: e });
-      }
-      if (e instanceof TypeError) {
-        throw new AnchoreNetworkError(
-          "Could not reach Anchore — check base URL, TLS, and network.",
-          { cause: e },
-        );
-      }
-      throw e;
-    } finally {
-      clearTimeout(timeout);
     }
+
+    throw new Error("AnchoreClient: GET retry loop exited without result");
   }
 }
 

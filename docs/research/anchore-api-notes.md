@@ -10,6 +10,8 @@ Use the spec served by your Anchore API host, for example:
 
 That file is the source of truth for paths, query parameters, and response shapes.
 
+This MCP’s **`anchore_list_images`** tool uses **`list_query`** passthrough: allowlisted keys include the deployment’s `GET /v2/images` (or `/v1/images`) query parameters from OpenAPI (when `list_query` is used) plus a small static fallback set. **GET** calls use bounded retries for transient failures — see `ANCHORE_HTTP_*` in README / `env.example`.
+
 ## Auth
 
 - **Basic** over HTTPS: username `_api_key` with password = API token (or per your org’s policy).

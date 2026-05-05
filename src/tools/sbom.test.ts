@@ -65,6 +65,32 @@ describe("runImageSbom", () => {
     expect(fetchMock.mock.calls[0][0]).toContain("/sboms/spdx-json");
   });
 
+  it("resolves image_reference to the same SBOM path as a matching digest", async () => {
+    const connection = testConnection();
+    const d = `sha256:${"a".repeat(64)}`;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ items: [{ image_digest: d }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }),
+      );
+    await runImageSbom(
+      {
+        image_reference: "docker.io/library/nginx:1.21",
+        format: "normal",
+      },
+      { connection, fetch: fetchMock },
+    );
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      `https://anchore.example.com/v2/images/${encodeURIComponent(d)}/sboms/native-json`,
+    );
+  });
+
   it("uses cyclonedx-json path for cyclonedx format", async () => {
     const connection = testConnection();
     const fetchMock = vi.fn().mockResolvedValue(

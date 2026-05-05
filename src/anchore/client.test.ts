@@ -17,10 +17,12 @@ const connection = {
 describe("AnchoreClient", () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
+    process.env.ANCHORE_HTTP_MAX_RETRIES = "0";
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    delete process.env.ANCHORE_HTTP_MAX_RETRIES;
   });
 
   it("GET returns parsed JSON on 200", async () => {
@@ -148,6 +150,30 @@ describe("AnchoreClient", () => {
     await expect(
       client.getJsonWithByteLength("/x", { maxResponseBytes: 1 }),
     ).rejects.toMatchObject({ name: "AnchoreResponseTooLargeError" });
+  });
+
+  it("retries transient 503 responses then succeeds", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("", { status: 503 }))
+      .mockResolvedValueOnce(new Response("", { status: 503 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    const client = createAnchoreClient(connection, {
+      fetch: fetchMock,
+      getRetryPolicy: {
+        maxRetries: 2,
+        baseDelayMs: 1,
+        maxDelayMs: 10,
+      },
+    });
+    const data = await client.getJson<{ ok: boolean }>("/v2/images");
+    expect(data.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("omits x-anchore-account when connection has no account", async () => {
