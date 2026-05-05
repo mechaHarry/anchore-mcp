@@ -82,19 +82,29 @@ function policyBlockingFailureMessage(err: unknown): string {
 }
 
 function policyBlockingSelectionMessage(message: string): string {
-  const safePatterns = [
-    /^Supply exactly one of image_digest, image_reference, or image_repository\.$/,
-    /^image_reference\b/,
-    /^image_repository\b/,
-    /^No matching image row had both a digest and a reliable analysis timestamp\.$/,
-    /^Newest analyzed image is ambiguous:/,
-    /^Image list enumeration incomplete\b/,
+  const safeMessages = new Set([
+    "Supply exactly one of image_digest, image_reference, or image_repository.",
+    "image_reference is empty.",
+    "image_reference is too long.",
+    "image_reference contains invalid control characters.",
+    "image_reference must include a tag (registry/repo:tag).",
+    "image_reference must be a fully qualified image reference (e.g. docker.io/library/nginx:latest).",
+    "image_repository is empty.",
+    "image_repository is too long.",
+    "image_repository contains invalid control characters.",
+    "image_repository must be a qualified registry/repository string (e.g. docker.io/library/nginx).",
+    "image_repository must not include an image tag.",
+    "No matching image row had both a digest and a reliable analysis timestamp.",
+  ]);
+  const safeDynamicPatterns = [
+    /^Newest analyzed image is ambiguous: \d+ digests share timestamp [A-Za-z0-9:.+-]+\.$/,
     /^Image list enumeration incomplete after \d+ page\(s\)\.$/,
     /^Stopped after collecting \d+ image row\(s\) \(maxItems cap\)\.$/,
     /^Stopped after \d+ page request\(s\) \(maxPages cap\)\.$/,
   ];
 
-  return safePatterns.some((pattern) => pattern.test(message))
+  return safeMessages.has(message) ||
+    safeDynamicPatterns.some((pattern) => pattern.test(message))
     ? message
     : IMAGE_SELECTION_FAILURE_MESSAGE;
 }
