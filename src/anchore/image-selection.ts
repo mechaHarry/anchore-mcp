@@ -179,7 +179,14 @@ function selectNewest(candidates: TimestampedCandidate[]): ImageSelectionResult 
     );
   }
 
-  const { parsedTimestamp: _parsedTimestamp, ...selectedImage } = newest;
+  const selectedImage: SelectedImage = {
+    digest: newest.digest,
+    ...(newest.reference !== undefined ? { reference: newest.reference } : {}),
+    ...(newest.repository !== undefined ? { repository: newest.repository } : {}),
+    ...(newest.analysisTimestamp !== undefined
+      ? { analysisTimestamp: newest.analysisTimestamp }
+      : {}),
+  };
   return { ok: true, selectedImage };
 }
 
