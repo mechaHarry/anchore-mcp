@@ -7,6 +7,7 @@ import {
   loadConnectionFromEnv,
 } from "../config/connection.js";
 import { runListImages } from "../tools/images.js";
+import { runPolicyBlockingVulnerabilities } from "../tools/policy-blocking-vulnerabilities.js";
 import { runRemediationHandoff } from "../tools/remediation-handoff.js";
 import { runImageDetail, runImagePolicyCheck } from "../tools/reports.js";
 import { runImageSbom } from "../tools/sbom.js";
@@ -136,6 +137,38 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
     },
     async (args) =>
       runImagePolicyCheck(args, { connection: options.connection }),
+  );
+
+  server.tool(
+    "anchore_policy_blocking_vulnerabilities",
+    "Return only vulnerability remediations proven to change an image policy from red to green.",
+    {
+      image_digest: z.string().optional().describe("Digest locator."),
+      image_reference: z
+        .string()
+        .optional()
+        .describe(
+          "Fully qualified registry/repo:tag; newest analyzed matching digest selected.",
+        ),
+      image_repository: z
+        .string()
+        .optional()
+        .describe(
+          "Qualified registry/repository without tag; newest analyzed matching image selected.",
+        ),
+      tag: z
+        .string()
+        .optional()
+        .describe("Anchore /check query context only."),
+      base_digest: z
+        .string()
+        .optional()
+        .describe("Anchore /check comparison context only."),
+    },
+    async (args) =>
+      runPolicyBlockingVulnerabilities(args, {
+        connection: options.connection,
+      }),
   );
 
   server.tool(
