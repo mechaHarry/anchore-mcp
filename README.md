@@ -43,6 +43,8 @@ Each MCP process talks to **one** Anchore deployment. Set environment variables 
 
 Need **multiple** Anchore deployments? Add **multiple** MCP server entries in your IDE, each with its own `command`/`args` and **different** `env` (different `ANCHORE_URL` and token).
 
+For a repo-local Codex setup that other agents can reuse without committing secrets, see [examples/codex-agent-setup](examples/codex-agent-setup/README.md).
+
 ### Image digest vs reference
 
 Anchore’s per-image HTTP routes use the **digest** in the path (`/v2/images/{digest}/…`). For convenience, digest-keyed tools also accept **`image_reference`**: a fully qualified image string (`registry/repo:tag`, e.g. `docker.io/library/nginx:latest`). The MCP resolves that to a digest by calling `GET /v2/images?fulltag=…` (paginated client-side) before the real request. Short names like `nginx:latest` are rejected; use a registry-qualified reference.
