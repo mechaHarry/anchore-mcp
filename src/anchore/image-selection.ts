@@ -13,7 +13,13 @@ import {
 export type PolicyBlockingImageLocator = {
   image_digest?: string;
   image_reference?: string;
+  image_registry?: string;
   image_repository?: string;
+};
+
+type RepositoryLocator = {
+  registry: string;
+  repository: string;
 };
 
 export type SelectedImage = {
@@ -45,6 +51,7 @@ const REPOSITORY_KEYS = [
   "image_repository",
   "imageRepository",
 ] as const;
+const REGISTRY_KEYS = ["registry", "image_registry", "imageRegistry"] as const;
 const IMAGE_DETAIL_KEYS = [
   "image_detail",
   "imageDetail",
@@ -65,19 +72,6 @@ const TIMESTAMP_KEYS = [
 
 function imageSelectionError(message: string): ImageSelectionResult {
   return { ok: false, status: "image_selection_error", message };
-}
-
-function nonEmptyLocatorEntries(
-  args: PolicyBlockingImageLocator,
-): Array<[keyof PolicyBlockingImageLocator, string]> {
-  const entries: Array<[keyof PolicyBlockingImageLocator, string]> = [];
-  for (const key of ["image_digest", "image_reference", "image_repository"] as const) {
-    const value = args[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      entries.push([key, value.trim()]);
-    }
-  }
-  return entries;
 }
 
 function stringField(row: Record<string, unknown>, key: string): string | undefined {
@@ -140,22 +134,6 @@ function detailReferences(detail: Record<string, unknown>): string[] {
   return uniqueStrings(values);
 }
 
-function detailRepositories(detail: Record<string, unknown>): string[] {
-  const values = stringFields(detail, REPOSITORY_KEYS);
-  const registry = stringField(detail, "registry");
-  const repo = stringField(detail, "repo") ?? stringField(detail, "repository");
-  if (registry !== undefined && repo !== undefined) {
-    values.push(`${registry}/${repo}`);
-  }
-  for (const reference of detailReferences(detail)) {
-    const derived = stripTagFromReference(reference);
-    if (derived !== undefined) {
-      values.push(derived);
-    }
-  }
-  return uniqueStrings(values);
-}
-
 function referencesFromRow(row: Record<string, unknown>): string[] {
   const values = stringFields(row, REFERENCE_KEYS);
   for (const detail of imageDetailRows(row)) {
@@ -190,7 +168,33 @@ function stripTagFromReference(reference: string): string | undefined {
   return trimmed.slice(0, lastColon);
 }
 
-function validateRepository(repository: string): { ok: true } | { ok: false; message: string } {
+function validateRegistry(
+  registry: string,
+): { ok: true; value: string } | { ok: false; message: string } {
+  // eslint-disable-next-line no-control-regex -- reject ASCII control chars before trimming
+  if (/[\x00-\x1f\x7f]/.test(registry)) {
+    return { ok: false, message: "image_registry contains invalid control characters." };
+  }
+  const trimmed = registry.trim();
+  if (trimmed.length === 0) {
+    return { ok: false, message: "image_registry is empty." };
+  }
+  if (trimmed.length > 1024) {
+    return { ok: false, message: "image_registry is too long." };
+  }
+  if (trimmed.includes("/")) {
+    return { ok: false, message: "image_registry must not contain '/'." };
+  }
+  return { ok: true, value: trimmed };
+}
+
+function validateRepository(
+  repository: string,
+): { ok: true; value: string } | { ok: false; message: string } {
+  // eslint-disable-next-line no-control-regex -- reject ASCII control chars before trimming
+  if (/[\x00-\x1f\x7f]/.test(repository)) {
+    return { ok: false, message: "image_repository contains invalid control characters." };
+  }
   const trimmed = repository.trim();
   if (trimmed.length === 0) {
     return { ok: false, message: "image_repository is empty." };
@@ -198,45 +202,79 @@ function validateRepository(repository: string): { ok: true } | { ok: false; mes
   if (trimmed.length > 1024) {
     return { ok: false, message: "image_repository is too long." };
   }
-  // eslint-disable-next-line no-control-regex -- reject ASCII control chars in image repository input
-  if (/[\x00-\x1f\x7f]/.test(trimmed)) {
-    return { ok: false, message: "image_repository contains invalid control characters." };
-  }
   const lastSlash = trimmed.lastIndexOf("/");
-  if (lastSlash <= 0 || lastSlash === trimmed.length - 1) {
-    return {
-      ok: false,
-      message:
-        "image_repository must be a qualified registry/repository string (e.g. docker.io/library/nginx).",
-    };
+  if (trimmed.startsWith("/") || trimmed.endsWith("/")) {
+    return { ok: false, message: "image_repository must not begin or end with '/'." };
   }
   const lastColon = trimmed.lastIndexOf(":");
   if (lastColon > lastSlash) {
     return { ok: false, message: "image_repository must not include an image tag." };
   }
-  return { ok: true };
+  return { ok: true, value: trimmed };
 }
 
-function repositoriesFromRow(row: Record<string, unknown>): string[] {
-  const repositories = stringFields(row, REPOSITORY_KEYS);
-  for (const detail of imageDetailRows(row)) {
-    repositories.push(...detailRepositories(detail));
+function locatorFromReference(reference: string): RepositoryLocator | undefined {
+  const qualifiedRepository = stripTagFromReference(reference);
+  if (qualifiedRepository === undefined) {
+    return undefined;
   }
-  for (const reference of referencesFromRow(row)) {
-    const derived = stripTagFromReference(reference);
-    if (derived !== undefined) {
-      repositories.push(derived);
+  const firstSlash = qualifiedRepository.indexOf("/");
+  if (firstSlash <= 0 || firstSlash === qualifiedRepository.length - 1) {
+    return undefined;
+  }
+  return {
+    registry: qualifiedRepository.slice(0, firstSlash),
+    repository: qualifiedRepository.slice(firstSlash + 1),
+  };
+}
+
+function repositoryLocatorsFromObject(object: Record<string, unknown>): RepositoryLocator[] {
+  const registries = stringFields(object, REGISTRY_KEYS);
+  const repositories = stringFields(object, REPOSITORY_KEYS);
+  const locators: RepositoryLocator[] = [];
+  for (const registry of registries) {
+    for (const repository of repositories) {
+      locators.push({ registry, repository });
     }
   }
-  return uniqueStrings(repositories);
+  for (const reference of detailReferences(object)) {
+    const locator = locatorFromReference(reference);
+    if (locator !== undefined) {
+      locators.push(locator);
+    }
+  }
+  return locators;
 }
 
-function referenceMatchesRepository(reference: string, repository: string): boolean {
-  const derived = stripTagFromReference(reference);
-  if (derived === undefined) {
-    return false;
+function repositoryLocatorsFromRow(row: Record<string, unknown>): RepositoryLocator[] {
+  const locators = repositoryLocatorsFromObject(row);
+  for (const detail of imageDetailRows(row)) {
+    locators.push(...repositoryLocatorsFromObject(detail));
   }
-  return derived === repository || derived.endsWith(`/${repository}`);
+  for (const reference of referencesFromRow(row)) {
+    const locator = locatorFromReference(reference);
+    if (locator !== undefined) {
+      locators.push(locator);
+    }
+  }
+  const seen = new Set<string>();
+  return locators.filter((locator) => {
+    const key = `${locator.registry}\u0000${locator.repository}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function sameRepositoryLocator(a: RepositoryLocator, b: RepositoryLocator): boolean {
+  return a.registry === b.registry && a.repository === b.repository;
+}
+
+function referenceMatchesLocator(reference: string, locator: RepositoryLocator): boolean {
+  const candidate = locatorFromReference(reference);
+  return candidate !== undefined && sameRepositoryLocator(candidate, locator);
 }
 
 function selectNewest(candidates: TimestampedCandidate[]): ImageSelectionResult {
@@ -343,18 +381,28 @@ async function selectByReference(
 }
 
 async function selectByRepository(
+  imageRegistry: string,
   imageRepository: string,
   connection: ResolvedAnchoreConnection,
   options?: AnchoreClientOptions,
 ): Promise<ImageSelectionResult> {
-  const repository = imageRepository.trim();
-  const validated = validateRepository(repository);
-  if (!validated.ok) {
-    return imageSelectionError(validated.message);
+  const validatedRegistry = validateRegistry(imageRegistry);
+  if (!validatedRegistry.ok) {
+    return imageSelectionError(validatedRegistry.message);
   }
+  const validatedRepository = validateRepository(imageRepository);
+  if (!validatedRepository.ok) {
+    return imageSelectionError(validatedRepository.message);
+  }
+  const locator: RepositoryLocator = {
+    registry: validatedRegistry.value,
+    repository: validatedRepository.value,
+  };
+  const qualifiedRepository = `${locator.registry}/${locator.repository}`;
 
   const params = new URLSearchParams();
-  params.set("repository", repository);
+  params.set("registry", locator.registry);
+  params.set("repository", locator.repository);
 
   const rows = await listImages(params, connection, options);
   if (!Array.isArray(rows)) {
@@ -367,7 +415,9 @@ async function selectByRepository(
       continue;
     }
     const objectRow = row as Record<string, unknown>;
-    if (!repositoriesFromRow(objectRow).includes(repository)) {
+    if (!repositoryLocatorsFromRow(objectRow).some((candidate) =>
+      sameRepositoryLocator(candidate, locator),
+    )) {
       continue;
     }
     const digest = digestFromImageRow(objectRow);
@@ -376,12 +426,12 @@ async function selectByRepository(
       continue;
     }
     const reference = referencesFromRow(objectRow).find((candidate) =>
-      referenceMatchesRepository(candidate, repository),
+      referenceMatchesLocator(candidate, locator),
     );
     candidates.push({
       digest,
       ...(reference !== undefined ? { reference } : {}),
-      repository,
+      repository: qualifiedRepository,
       analysisTimestamp: timestamp.value,
       parsedTimestamp: timestamp.parsed,
     });
@@ -395,19 +445,38 @@ export async function selectImageForPolicyBlockingReport(
   connection: ResolvedAnchoreConnection,
   options?: AnchoreClientOptions,
 ): Promise<ImageSelectionResult> {
-  const locators = nonEmptyLocatorEntries(args);
-  if (locators.length !== 1) {
+  const hasDigest = args.image_digest !== undefined;
+  const hasReference = args.image_reference !== undefined;
+  const hasRegistry = args.image_registry !== undefined;
+  const hasRepository = args.image_repository !== undefined;
+  const hasComponentPair = hasRegistry && hasRepository;
+
+  if (hasRegistry !== hasRepository) {
     return imageSelectionError(
-      "Supply exactly one of image_digest, image_reference, or image_repository.",
+      "Supply image_registry and image_repository together.",
+    );
+  }
+  const locatorCount = Number(hasDigest) + Number(hasReference) + Number(hasComponentPair);
+  if (locatorCount !== 1) {
+    return imageSelectionError(
+      "Supply exactly one of image_digest, image_reference, or the image_registry and image_repository pair.",
     );
   }
 
-  const [kind, value] = locators[0];
-  if (kind === "image_digest") {
-    return { ok: true, selectedImage: { digest: value } };
+  if (hasDigest) {
+    const digest = args.image_digest?.trim() ?? "";
+    if (digest.length === 0) {
+      return imageSelectionError("image_digest is empty.");
+    }
+    return { ok: true, selectedImage: { digest } };
   }
-  if (kind === "image_reference") {
-    return selectByReference(value, connection, options);
+  if (hasReference) {
+    return selectByReference(args.image_reference ?? "", connection, options);
   }
-  return selectByRepository(value, connection, options);
+  return selectByRepository(
+    args.image_registry ?? "",
+    args.image_repository ?? "",
+    connection,
+    options,
+  );
 }
