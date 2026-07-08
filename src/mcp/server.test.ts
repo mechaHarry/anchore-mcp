@@ -51,6 +51,11 @@ describe("createMcpServer", () => {
     await server.connect(serverTransport);
     await client.connect(clientTransport);
     try {
+      expect(client.getServerVersion()).toEqual({
+        name: "anchore-mcp",
+        version: "3.0.0",
+      });
+
       const { tools } = await client.listTools();
       const tool = tools.find(
         ({ name }) => name === "anchore_policy_blocking_vulnerabilities",

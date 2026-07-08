@@ -14,7 +14,7 @@ import { runImageSbom } from "../tools/sbom.js";
 import { runImageVulnerabilities } from "../tools/vulnerabilities.js";
 
 const SERVER_NAME = "anchore-mcp";
-const SERVER_VERSION = "0.1.0";
+const SERVER_VERSION = "3.0.0";
 
 /** Non-secret connection info for tools (R8 context). Exported for tests. */
 export function getConnectionInfo(connection: ResolvedAnchoreConnection) {

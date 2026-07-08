@@ -1,6 +1,6 @@
 {
   "name": "anchore-mcp",
-  "version": "0.1.0",
+  "version": "3.0.0",
   "description": "MCP server for Anchore Enterprise (read paths, remediation handoff)",
   "type": "module",
   "engines": {
