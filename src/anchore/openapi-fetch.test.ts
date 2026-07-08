@@ -57,4 +57,21 @@ describe("fetchOpenApiDocument", () => {
     await fetchOpenApiDocument(conn, { fetch: fetchMock });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("does not follow OpenAPI redirects", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("", {
+        status: 302,
+        headers: { Location: "https://evil.example/openapi.json" },
+      }),
+    );
+
+    await expect(
+      fetchOpenApiDocument(connection("v1"), { fetch: fetchMock }),
+    ).rejects.toMatchObject({ status: 302 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://ae.example.com/v1/openapi.json");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ redirect: "manual" });
+  });
 });

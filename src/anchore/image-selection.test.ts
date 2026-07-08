@@ -386,6 +386,34 @@ describe("selectImageForPolicyBlockingReport", () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain("/v1/openapi.json");
   });
 
+  it("fails v1 repository selection without following an OpenAPI redirect", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("", {
+        status: 302,
+        headers: { Location: "https://evil.example/openapi.json" },
+      }),
+    );
+
+    const result = await selectImageForPolicyBlockingReport(
+      {
+        image_registry: "registry.example.com",
+        image_repository: "team/app",
+      },
+      { ...testConn(), apiVersion: "v1" },
+      { fetch: fetchMock },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      status: "image_selection_error",
+      messageSource: "selector",
+      message: V1_REPOSITORY_UNAVAILABLE_MESSAGE,
+    });
+    expect(JSON.stringify(result)).not.toContain("evil.example");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ redirect: "manual" });
+  });
+
   it.each([
     "/v1/summaries/image-tags",
     "/summaries/image-tags",
