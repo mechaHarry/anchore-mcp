@@ -40,14 +40,19 @@ locator combinations. It requests
 `GET /v2/summaries/image-tags?registry=...&repository=...`, walks the bounded
 `items`/`total_rows` pages, and considers only rows whose `full_tag` matches both
 requested components exactly. It selects the newest digest-bearing row with a
-valid `analyzed_at`; missing or tied newest timestamps are errors rather than
-guessing.
+reliable analysis timestamp. Every exact matching digest-bearing candidate must
+have such a timestamp; one missing, invalid, or untrusted timestamp makes
+newest selection fail closed because the MCP cannot prove which digest is
+newest. Matching digestless rows cannot be selected and may be ignored. A tie
+at the newest timestamp across digests is also an error rather than a guess.
 
 Exact `image_reference` selection remains a separate operation:
-`GET /v2/images?full_tag=registry/repository:tag`. The MCP requires an exact
-local tag match before using the resolved digest. The public
-`anchore_list_images.fulltag` convenience input is likewise translated to the
-wire key `full_tag`.
+`GET /v2/images?full_tag=registry/repository:tag`; legacy v1 uses
+`GET /v1/images?fulltag=registry/repository:tag`. The MCP requires an exact
+local tag match before using the resolved digest and applies the same
+digest-bearing timestamp trust rule when it must select the newest exact match.
+The public `anchore_list_images.fulltag` convenience input is translated to the
+version-specific wire key: `full_tag` for v2 and `fulltag` for v1.
 
 The MCP does not assume that `registry`, `repository`, or `repo` filter
 `GET /v2/images`. Such keys are accepted there only if the deployment’s
@@ -66,7 +71,8 @@ pagination bounds, ambiguity detection, and safe error mapping remain unchanged.
 ## Tests and documentation
 
 Tests cover the summary route and separate query parameters, exact `full_tag`
-matching, valid `analyzed_at` newest-image selection, bounded pagination,
-incomplete and mixed component pairs, `fulltag` to `full_tag` translation, and
-safe error redaction. README and tool-schema descriptions distinguish an exact
-tagged `image_reference` from the registry/repository lookup pair.
+matching, reliable analysis-timestamp parsing, bounded pagination, fail-closed
+digest-bearing timestamp failures versus ignored digestless rows, incomplete
+and mixed component pairs, version-specific full-tag query keys, and safe error
+redaction. README and tool-schema descriptions distinguish an exact tagged
+`image_reference` from the registry/repository lookup pair.

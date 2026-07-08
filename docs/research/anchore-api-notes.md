@@ -10,7 +10,7 @@ Use the spec served by your Anchore API host, for example:
 
 That file is the source of truth for paths, query parameters, and response shapes.
 
-This MCP’s **`anchore_list_images`** tool uses **`list_query`** passthrough: allowlisted keys include the deployment’s `GET /v2/images` (or `/v1/images`) query parameters from OpenAPI (when `list_query` is used) plus a small static fallback set. The public `fulltag` convenience input is translated to the documented wire parameter `full_tag`. The static fallback set intentionally does not assume that `registry`, `repository`, or `repo` filter `/images`; a deployment may use those keys there only when its OpenAPI explicitly advertises them. **GET** calls use bounded retries for transient failures — see `ANCHORE_HTTP_*` in README / `env.example`.
+This MCP’s **`anchore_list_images`** tool uses **`list_query`** passthrough: allowlisted keys include the deployment’s `GET /v2/images` (or `/v1/images`) query parameters from OpenAPI (when `list_query` is used) plus a small static fallback set. The public `fulltag` convenience input has a version-specific wire key: v2 uses `full_tag`; v1 uses `fulltag`. The static fallback set intentionally does not assume that `registry`, `repository`, or `repo` filter `/images`; a deployment may use those keys there only when its OpenAPI explicitly advertises them. **GET** calls use bounded retries for transient failures — see `ANCHORE_HTTP_*` in README / `env.example`.
 
 ## Auth
 
@@ -34,11 +34,11 @@ This MCP’s **`anchore_list_images`** tool uses **`list_query`** passthrough: a
 
 Use the route that matches the identifier supplied by the MCP caller:
 
-- `image_reference` is a fully qualified `registry/repository:tag`. Resolve only that exact tag with `GET /v2/images?full_tag=...`, then call the digest-keyed image route.
-- `image_registry` plus `image_repository` is a component pair used by `anchore_policy_blocking_vulnerabilities`. Query `GET /v2/summaries/image-tags?registry=...&repository=...`, require an exact pair match, and select the newest digest-bearing row with a valid `analyzed_at`.
+- `image_reference` is a fully qualified `registry/repository:tag`. Resolve only that exact tag with `GET /v2/images?full_tag=...`; legacy v1 uses `GET /v1/images?fulltag=...`. If multiple exact rows must be ordered, newest selection succeeds only if every exact matching digest-bearing candidate has a reliable analysis timestamp (`analyzed_at` or an accepted equivalent); matching digestless rows may be ignored. Then call the digest-keyed image route.
+- `image_registry` plus `image_repository` is a component pair used by `anchore_policy_blocking_vulnerabilities`. Query `GET /v2/summaries/image-tags?registry=...&repository=...` and require an exact pair match. Newest selection succeeds only if every exact matching digest-bearing candidate has a reliable analysis timestamp (`analyzed_at` or an accepted equivalent) and one digest is provably newest. Any such candidate with a missing, invalid, or untrusted timestamp fails selection closed; matching digestless rows may be ignored.
 - Do not emulate the second behavior with assumed `registry` or `repository` parameters on `GET /v2/images`. Those are not portable fallback filters for that operation.
 
-Both the [current Anchore API specification](https://docs.anchore.com/current/docs/api/specs/anchore_api_swagger.yaml) and the [Anchore Enterprise 5.8 v2 specification](https://docs.anchore.com/5.8/docs/api/v2/specs/anchore_api_swagger.yaml) document `full_tag` on `/images` and the separate registry/repository filters on `/summaries/image-tags`. The deployment’s own `GET /v2/openapi.json` remains authoritative because supported operations and response shapes can vary by installed version.
+Both the [current Anchore API specification](https://docs.anchore.com/current/docs/api/specs/anchore_api_swagger.yaml) and the [Anchore Enterprise 5.8 v2 specification](https://docs.anchore.com/5.8/docs/api/v2/specs/anchore_api_swagger.yaml) document `full_tag` on the v2 `/images` operation and the separate registry/repository filters on `/summaries/image-tags`. Legacy v1 uses `fulltag`. The deployment’s matching OpenAPI document remains authoritative because supported operations and response shapes can vary by installed version.
 
 ### SBOM path pitfall (400 Bad Request)
 
@@ -50,7 +50,7 @@ Set environment variable `ANCHORE_API_VERSION=v1` if you must talk to older beha
 
 | Area | Method + path |
 |------|----------------|
-| Images | `GET /v1/images` |
+| Images | `GET /v1/images` (`fulltag=...` for exact tagged lookup) |
 | Image vulns | `GET /v1/images/{imageDigest}/vulnerabilities` |
 
 ## References

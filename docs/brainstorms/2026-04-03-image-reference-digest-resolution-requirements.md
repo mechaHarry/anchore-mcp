@@ -38,7 +38,7 @@ Requirement IDs (**R1–R9**, **R10**) are grouped by theme, not strict numeric 
 
 - R1. Digest-keyed tools must accept a **human-oriented image reference** in addition to (or in place of) a bare digest, so callers can start from **names/tags** without a separate manual lookup when resolution succeeds. The exact parameter shape (single combined field vs digest + optional reference) is a planning detail; behavior must preserve **backward compatibility** with existing **`image_digest`**-only calls.
 - R2. When the caller supplies a string that is unambiguously a **canonical digest** (e.g. `sha256:` prefix per deployment norms), the implementation **must not** treat it as a tag for list resolution—use it as the path key directly.
-- R3. **Resolution** must prefer **server-side narrowing** when the Anchore deployment supports it (public MCP input `fulltag`, translated to documented wire parameter `full_tag` on `GET /v2/images`) before falling back to broader list strategies documented at planning time. Where resolution requires walking list results, **R10** applies so scans are not truncated at the first page.
+- R3. **Resolution** must prefer **server-side narrowing** when the Anchore deployment supports it (public MCP input `fulltag`, translated to `full_tag` on `GET /v2/images` and retained as `fulltag` on legacy `GET /v1/images`) before falling back to broader list strategies documented at planning time. Where resolution requires walking list results, **R10** applies so scans are not truncated at the first page.
 
 **HTTP client and OpenAPI contract**
 
@@ -78,7 +78,7 @@ Requirement IDs (**R1–R9**, **R10**) are grouped by theme, not strict numeric 
 | Input | Expected treatment |
 |-------|---------------------|
 | `sha256:abcdef…` | Treat as digest (R2); no list resolution. |
-| `docker.io/library/nginx:1.21` | Resolve via list/public `fulltag` translated to wire `full_tag` (or equivalent); then 0/1/N rules. |
+| `docker.io/library/nginx:1.21` | Resolve via list/public `fulltag` using the version-specific wire key (`full_tag` for v2, `fulltag` for v1); then 0/1/N rules. |
 | `nginx:1.21` (short) | **Unspecified** in this doc—planning chooses: reject, pass through as opaque `fulltag` string, or require user to qualify—must be consistent and documented. |
 
 ## Key Decisions
@@ -92,7 +92,7 @@ Requirement IDs (**R1–R9**, **R10**) are grouped by theme, not strict numeric 
 
 - List and image records return enough **tag and digest fields** to match references; field names vary by version—planning must align with `GET /v2/openapi.json` for the target deployment.
 - The deployment’s OpenAPI document (URL follows **`ANCHORE_API_VERSION`**, e.g. **`GET …/v2/openapi.json`** for v2) defines which routes are paginated and how; the MCP must consume that contract per **R10** (implementation may cache or pin a fragment for tests; runtime behavior must match the connected host). If **`ANCHORE_API_VERSION=v1`**, use the spec that describes the v1 routes actually called, or scope **R10** to routes documented as paginated in that spec.
-- `anchore_list_images` with public **`fulltag`** remains a valid primary resolution mechanism where supported; the HTTP request uses **`full_tag`**.
+- `anchore_list_images` with public **`fulltag`** remains a valid primary resolution mechanism where supported; the HTTP request uses **`full_tag`** for v2 and **`fulltag`** for v1.
 
 ## Outstanding Questions
 
@@ -102,7 +102,7 @@ Planning may start without resolving every item below; items are **worked during
 
 - [Affects R1][Technical] Exact Zod shape: single `image` string vs `image_digest` + optional `image_reference`, and mutual-exclusion rules.
 - [Affects R2][Product] Default behavior for **short** references (e.g. `nginx:1.21` without registry): reject, pass through as opaque `fulltag`, or require qualification—must match the Input examples table once chosen.
-- [Affects R3][Needs research] Whether any deployment supports additional `GET /images` query filters beyond public `fulltag` (wire `full_tag`) / `vulnerability_id` that should participate in resolution for fewer false multi-matches; behavior when `full_tag` is ignored or partially applied (verify against OpenAPI; bounded fallback and failure mode). Do not assume `registry`, `repository`, or `repo` filters unless the deployment OpenAPI advertises them for this operation.
+- [Affects R3][Needs research] Whether any deployment supports additional `GET /images` query filters beyond public `fulltag` (v2 wire `full_tag`, v1 wire `fulltag`) / `vulnerability_id` that should participate in resolution for fewer false multi-matches; behavior when the version-specific full-tag filter is ignored or partially applied (verify against OpenAPI; bounded fallback and failure mode). Do not assume `registry`, `repository`, or `repo` filters unless the deployment OpenAPI advertises them for this operation.
 - [Affects R10][Technical] Exact pagination loop per OpenAPI (parameter names, response field for next cursor, `Link` header parsing if used); **caps** (max pages/items/elapsed time) for list tools and for internal resolution; whether **`anchore_list_images`** exposes optional cursor/limit to callers or only uses them internally; **when** to fetch or cache OpenAPI (per lazy connection model in `AGENTS.md`); fetch **TTL** / invalidation on auth errors.
 - [Affects R5][Technical] Maximum number of candidates to return in disambiguation, slim projection fields, and sort order when truncated.
 - [Affects R6][Technical] Optional **preflight** `GET /v2/images/{digest}` (or equivalent) after resolution when list-to-detail drift could cause downstream 404—planning decides if required or best-effort.

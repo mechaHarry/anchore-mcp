@@ -22,7 +22,7 @@ Operators and agents think in **registry/repo:tag**; Anchore v2 per-image routes
 
 | Origin | Plan coverage |
 |--------|----------------|
-| R1–R3 Unified input, digest detection, public `fulltag` / wire `full_tag` preference, R10 for walks | Units 2–5 |
+| R1–R3 Unified input, digest detection, public `fulltag` / version-specific wire-key preference, R10 for walks | Units 2–5 |
 | R10 OpenAPI pagination, same-origin spec fetch, caps, enumeration incomplete | Unit 1–2, 3 |
 | R4–R6 Errors, disambiguation, resolved digest in context | Units 3–5 |
 | R7 SBOM + vulns MVP; detail + handoff + policy same release strongly preferred | Units 4–5 |
@@ -139,7 +139,7 @@ sequenceDiagram
 
 **Goal:** Single module that given **`image_reference`** returns resolver outcome: canonical **digest** for downstream paths, **no match**, **disambiguation** list (deduped by digest per R5, slim fields, optional truncation flag), or **enumeration incomplete** per R10 caps. Includes **digest classifier** for R2.
 
-**Requirements:** R1–R6, R3 (public `fulltag` translated to wire `full_tag` first), R10 (delegate to Unit 1 for list walk).
+**Requirements:** R1–R6, R3 (public `fulltag` translated to v2 wire `full_tag` or retained as v1 wire `fulltag` first), R10 (delegate to Unit 1 for list walk).
 
 **Dependencies:** Unit 1.
 
@@ -147,12 +147,12 @@ sequenceDiagram
 - Add: `src/anchore/resolve-image-reference.ts` (or `src/tools/image-reference.ts` if preferred—prefer `anchore/` for reuse).
 - Add: `src/anchore/resolve-image-reference.test.ts`.
 
-**Approach:** Validate FQDN-ish reference (planning default); `URLSearchParams` / encoding per R4; call the paginated list with wire parameter `full_tag`; extract digest + tag fields from `items`/`images` rows using shared normalization (reuse or extend `summarizeImages` extraction logic in a small `image-records.ts` helper if needed).
+**Approach:** Validate FQDN-ish reference (planning default); `URLSearchParams` / encoding per R4; call the paginated list with `full_tag` for v2 or `fulltag` for v1; extract digest + tag fields from `items`/`images` rows using shared normalization (reuse or extend `summarizeImages` extraction logic in a small `image-records.ts` helper if needed).
 
 **Patterns to follow:** `docs/solutions` digest vs tag; no tag in SBOM path.
 
 **Test scenarios:**
-- **Happy path:** One matching row after the `full_tag` wire filter → digest.
+- **Happy path:** One matching row after the version-specific full-tag wire filter → digest.
 - **Edge case:** Multiple rows same digest different tags → count as one (R5 dedupe).
 - **Error path:** Zero matches → structured `no_match` (not HTTP raw).
 - **Error path:** Multi digest disambiguation; truncated candidate list sets `disambiguation_truncated`.
@@ -175,7 +175,7 @@ sequenceDiagram
 - Modify: `src/tools/images.test.ts`
 - Modify: `src/mcp/server.ts` (Zod for new optional params if any)
 
-**Approach:** Replace single `getJson` with paginated helper from Unit 1 for default behavior; preserve public `fulltag` (translated to wire `full_tag`) and `vulnerability_id` behavior.
+**Approach:** Replace single `getJson` with paginated helper from Unit 1 for default behavior; preserve public `fulltag` (translated to v2 `full_tag`, retained as v1 `fulltag`) and `vulnerability_id` behavior.
 
 **Test scenarios:**
 - **Happy path:** Two-page list merged; summary line count correct.

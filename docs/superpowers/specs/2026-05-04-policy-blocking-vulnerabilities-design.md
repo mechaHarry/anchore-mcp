@@ -28,7 +28,7 @@ Inputs:
 Exactly one image locator is required:
 
 - `image_digest` uses the supplied digest directly.
-- `image_reference` is a fully qualified tagged reference such as `registry/repository:tag`; the MCP resolves the exact tag through `GET /v2/images?full_tag=...`.
+- `image_reference` is a fully qualified tagged reference such as `registry/repository:tag`; the MCP resolves the exact tag through `GET /v2/images?full_tag=...`, or `GET /v1/images?fulltag=...` in legacy v1 mode.
 - `image_registry` and `image_repository` must be supplied together. They are separate components such as `registry.example.com` and `team/app`; the MCP selects the newest analyzed tag from the exact pair through `GET /v2/summaries/image-tags?registry=...&repository=...`.
 
 The former combined `image_repository="registry/repository"` input is not supported. `image_repository` contains neither registry nor tag and is never a locator by itself.
@@ -40,12 +40,12 @@ The former combined `image_repository="registry/repository"` input is not suppor
 The selector chooses one image before policy and vulnerability calls:
 
 - For `image_digest`, use the digest directly.
-- For `image_reference`, query `/v2/images` with wire parameter `full_tag`, require an exact local tag match, then use the selected digest.
-- For `image_registry` plus `image_repository`, walk bounded `/v2/summaries/image-tags` pages with separate registry/repository filters, require an exact `full_tag` component match, then select the newest digest-bearing row with a valid `analyzed_at`.
+- For `image_reference`, query `/v2/images` with wire parameter `full_tag`, or `/v1/images` with legacy wire parameter `fulltag`, require an exact local tag match, then use the selected digest.
+- For `image_registry` plus `image_repository`, walk bounded `/v2/summaries/image-tags` pages with separate registry/repository filters, require an exact `full_tag` component match, then apply the fail-closed timestamp proof below to every matching digest-bearing candidate.
 
-The selector does not fall back to assumed `registry`, `repository`, or `repo` filters on `/v2/images`. The deployment’s `/v2/openapi.json` is authoritative for parameters supported by that operation. The public `anchore_list_images.fulltag` input is a separate convenience field that is translated to `full_tag` on the wire.
+The selector does not fall back to assumed `registry`, `repository`, or `repo` filters on `/v2/images`. The deployment’s `/v2/openapi.json` is authoritative for parameters supported by that operation. The public `anchore_list_images.fulltag` input is a separate convenience field: it becomes `full_tag` on v2 and remains `fulltag` on v1.
 
-Newest image selection requires reliable timestamp metadata from Anchore image records. If timestamps are missing, unparsable, or tied across multiple digests, the tool returns an MCP error rather than guessing.
+Newest image selection requires reliable timestamp metadata from Anchore image records. Every exact matching candidate that has a digest must also have a reliable analysis timestamp (`analyzed_at` or an accepted equivalent). A missing, invalid, or untrusted timestamp on any such candidate makes selection fail closed; a matching row without a digest cannot be selected and may be ignored. A tie at the newest timestamp across different digests is also an MCP error rather than a guess.
 
 ## Data Flow
 
