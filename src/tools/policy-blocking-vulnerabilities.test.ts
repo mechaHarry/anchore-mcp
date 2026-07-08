@@ -337,7 +337,109 @@ describe("runPolicyBlockingVulnerabilities", () => {
     };
     expect(parsed.error).toBe(true);
     expect(parsed.policyRemediationStatus).toBe("image_selection_error");
-    expect(parsed.message).toMatch(/exactly one/);
+    expect(parsed.message).toBe(
+      "Supply exactly one of image_digest, image_reference, or the image_registry and image_repository pair.",
+    );
+  });
+
+  it.each([
+    { image_registry: "registry.example.com" },
+    { image_repository: "team/app" },
+  ])("rejects an incomplete component pair without fetching: %o", async (args) => {
+    const fetchMock = vi.fn();
+
+    const result = await runPolicyBlockingVulnerabilities(args, {
+      connection: testConnection(),
+      fetch: fetchMock,
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(JSON.parse(textPayload(result))).toMatchObject({
+      error: true,
+      policyRemediationStatus: "image_selection_error",
+      message: "Supply image_registry and image_repository together.",
+    });
+  });
+
+  it.each([
+    {
+      image_digest: "sha256:a",
+      image_registry: "registry.example.com",
+      image_repository: "team/app",
+    },
+    {
+      image_reference: "registry.example.com/team/app:latest",
+      image_registry: "registry.example.com",
+      image_repository: "team/app",
+    },
+  ])("rejects a mixed component-pair locator without fetching: %o", async (args) => {
+    const fetchMock = vi.fn();
+
+    const result = await runPolicyBlockingVulnerabilities(args, {
+      connection: testConnection(),
+      fetch: fetchMock,
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(JSON.parse(textPayload(result))).toMatchObject({
+      error: true,
+      policyRemediationStatus: "image_selection_error",
+      message:
+        "Supply exactly one of image_digest, image_reference, or the image_registry and image_repository pair.",
+    });
+  });
+
+  it.each([
+    {
+      args: { image_registry: "", image_repository: "team/app" },
+      message: "image_registry is empty.",
+    },
+    {
+      args: { image_registry: "r".repeat(1025), image_repository: "team/app" },
+      message: "image_registry is too long.",
+    },
+    {
+      args: { image_registry: "registry.example.com\n", image_repository: "team/app" },
+      message: "image_registry contains invalid control characters.",
+    },
+    {
+      args: { image_registry: "registry.example.com/path", image_repository: "team/app" },
+      message: "image_registry must not contain '/'.",
+    },
+    {
+      args: { image_registry: "registry.example.com", image_repository: "" },
+      message: "image_repository is empty.",
+    },
+    {
+      args: { image_registry: "registry.example.com", image_repository: "r".repeat(1025) },
+      message: "image_repository is too long.",
+    },
+    {
+      args: { image_registry: "registry.example.com", image_repository: "team\u0000/app" },
+      message: "image_repository contains invalid control characters.",
+    },
+    {
+      args: { image_registry: "registry.example.com", image_repository: "/team/app" },
+      message: "image_repository must not begin or end with '/'.",
+    },
+    {
+      args: { image_registry: "registry.example.com", image_repository: "team/app:latest" },
+      message: "image_repository must not include an image tag.",
+    },
+  ])("returns the stable component validation message: $message", async ({ args, message }) => {
+    const fetchMock = vi.fn();
+
+    const result = await runPolicyBlockingVulnerabilities(args, {
+      connection: testConnection(),
+      fetch: fetchMock,
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(JSON.parse(textPayload(result))).toMatchObject({
+      error: true,
+      policyRemediationStatus: "image_selection_error",
+      message,
+    });
   });
 
   it("sanitizes generic image selection errors before returning them", async () => {
@@ -366,8 +468,18 @@ describe("runPolicyBlockingVulnerabilities", () => {
       message: "image_reference RAW_BODY_MARKER secret-ish selection body",
     },
     {
-      args: { image_repository: "docker.io/library/nginx" },
+      args: {
+        image_registry: "docker.io",
+        image_repository: "library/nginx",
+      },
       message: "image_repository RAW_BODY_MARKER secret-ish selection body",
+    },
+    {
+      args: {
+        image_registry: "docker.io",
+        image_repository: "library/nginx",
+      },
+      message: "image_registry RAW_BODY_MARKER secret-ish selection body",
     },
     {
       args: { image_reference: "docker.io/library/nginx:latest" },
@@ -438,7 +550,10 @@ describe("runPolicyBlockingVulnerabilities", () => {
       );
 
     const result = await runPolicyBlockingVulnerabilities(
-      { image_repository: "psf/help-site" },
+      {
+        image_registry: "containers.example.com",
+        image_repository: "psf/help-site",
+      },
       { connection: testConnection(), fetch: fetchMock },
     );
 

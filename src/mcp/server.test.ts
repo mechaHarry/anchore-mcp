@@ -40,4 +40,39 @@ describe("createMcpServer", () => {
 
     expect(registered).toContain("anchore_policy_blocking_vulnerabilities");
   });
+
+  it("publishes the component-pair locator contract", () => {
+    const server = createMcpServer({ connection: sampleConnection });
+    const tool = (
+      server as unknown as {
+        _registeredTools: Record<
+          string,
+          {
+            description?: string;
+            inputSchema?: {
+              shape: Record<string, { description?: string }>;
+            };
+          }
+        >;
+      }
+    )._registeredTools.anchore_policy_blocking_vulnerabilities;
+
+    expect(tool.description).toContain(
+      "Pass exactly one locator mode: image_digest, image_reference, or image_registry + image_repository.",
+    );
+    expect(Object.keys(tool.inputSchema?.shape ?? {})).toEqual(
+      expect.arrayContaining([
+        "image_digest",
+        "image_reference",
+        "image_registry",
+        "image_repository",
+      ]),
+    );
+    expect(tool.inputSchema?.shape.image_registry?.description).toBe(
+      "Anchore registry component; requires image_repository.",
+    );
+    expect(tool.inputSchema?.shape.image_repository?.description).toBe(
+      "Anchore repository component without registry or tag; requires image_registry.",
+    );
+  });
 });

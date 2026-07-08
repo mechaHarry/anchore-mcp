@@ -417,9 +417,11 @@ describe("selectImageForPolicyBlockingReport", () => {
 
     await expect(
       selectImageForPolicyBlockingReport({}, connection, { fetch: fetchMock }),
-    ).resolves.toMatchObject({
+    ).resolves.toEqual({
       ok: false,
       status: "image_selection_error",
+      message:
+        "Supply exactly one of image_digest, image_reference, or the image_registry and image_repository pair.",
     });
     await expect(
       selectImageForPolicyBlockingReport(
@@ -430,9 +432,11 @@ describe("selectImageForPolicyBlockingReport", () => {
         connection,
         { fetch: fetchMock },
       ),
-    ).resolves.toMatchObject({
+    ).resolves.toEqual({
       ok: false,
       status: "image_selection_error",
+      message:
+        "Supply exactly one of image_digest, image_reference, or the image_registry and image_repository pair.",
     });
     await expect(
       selectImageForPolicyBlockingReport(
@@ -444,9 +448,11 @@ describe("selectImageForPolicyBlockingReport", () => {
         connection,
         { fetch: fetchMock },
       ),
-    ).resolves.toMatchObject({
+    ).resolves.toEqual({
       ok: false,
       status: "image_selection_error",
+      message:
+        "Supply exactly one of image_digest, image_reference, or the image_registry and image_repository pair.",
     });
     await expect(
       selectImageForPolicyBlockingReport(
@@ -458,9 +464,11 @@ describe("selectImageForPolicyBlockingReport", () => {
         connection,
         { fetch: fetchMock },
       ),
-    ).resolves.toMatchObject({
+    ).resolves.toEqual({
       ok: false,
       status: "image_selection_error",
+      message:
+        "Supply exactly one of image_digest, image_reference, or the image_registry and image_repository pair.",
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -475,14 +483,22 @@ describe("selectImageForPolicyBlockingReport", () => {
         connection,
         { fetch: fetchMock },
       ),
-    ).resolves.toMatchObject({ ok: false, status: "image_selection_error" });
+    ).resolves.toEqual({
+      ok: false,
+      status: "image_selection_error",
+      message: "Supply image_registry and image_repository together.",
+    });
     await expect(
       selectImageForPolicyBlockingReport(
         { image_repository: "team/app" },
         connection,
         { fetch: fetchMock },
       ),
-    ).resolves.toMatchObject({ ok: false, status: "image_selection_error" });
+    ).resolves.toEqual({
+      ok: false,
+      status: "image_selection_error",
+      message: "Supply image_registry and image_repository together.",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

@@ -84,16 +84,22 @@ function policyBlockingFailureMessage(err: unknown): string {
 
 function policyBlockingSelectionMessage(message: string): string {
   const safeMessages = new Set([
-    "Supply exactly one of image_digest, image_reference, or image_repository.",
+    "Supply image_registry and image_repository together.",
+    "Supply exactly one of image_digest, image_reference, or the image_registry and image_repository pair.",
+    "image_digest is empty.",
     "image_reference is empty.",
     "image_reference is too long.",
     "image_reference contains invalid control characters.",
     "image_reference must include a tag (registry/repo:tag).",
     "image_reference must be a fully qualified image reference (e.g. docker.io/library/nginx:latest).",
+    "image_registry is empty.",
+    "image_registry is too long.",
+    "image_registry contains invalid control characters.",
+    "image_registry must not contain '/'.",
     "image_repository is empty.",
     "image_repository is too long.",
     "image_repository contains invalid control characters.",
-    "image_repository must be a qualified registry/repository string (e.g. docker.io/library/nginx).",
+    "image_repository must not begin or end with '/'.",
     "image_repository must not include an image tag.",
     "No matching image row had both a digest and a reliable analysis timestamp.",
   ]);

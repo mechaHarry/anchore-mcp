@@ -152,7 +152,7 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
 
   server.tool(
     "anchore_policy_blocking_vulnerabilities",
-    "Return only vulnerability remediations proven to change an image policy from red to green. Pass exactly one of image_digest, image_reference, or image_repository. When a reference is resolved or selected, it is used as Anchore /check tag context unless tag is supplied explicitly.",
+    "Return only vulnerability remediations proven to change an image policy from red to green. Pass exactly one locator mode: image_digest, image_reference, or image_registry + image_repository. When a reference is resolved or selected, it is used as Anchore /check tag context unless tag is supplied explicitly.",
     {
       image_digest: z.string().optional().describe("Digest locator."),
       image_reference: z
@@ -161,11 +161,17 @@ export function createMcpServer(options: CreateMcpServerOptions = {}): McpServer
         .describe(
           "Fully qualified registry/repo:tag; newest analyzed matching digest selected.",
         ),
+      image_registry: z
+        .string()
+        .optional()
+        .describe(
+          "Anchore registry component; requires image_repository.",
+        ),
       image_repository: z
         .string()
         .optional()
         .describe(
-          "Qualified registry/repository without tag; newest analyzed matching image selected.",
+          "Anchore repository component without registry or tag; requires image_registry.",
         ),
       tag: z
         .string()
