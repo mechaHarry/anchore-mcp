@@ -124,6 +124,38 @@ describe("selectImageForPolicyBlockingReport", () => {
     });
   });
 
+  it("ignores a matching digestless reference row with no timestamp", async () => {
+    const requested = "registry.example.com/team/app:1";
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          image_digest: "sha256:selectable",
+          full_tag: requested,
+          analyzed_at: "2026-04-01T00:00:00Z",
+        },
+        {
+          full_tag: requested,
+        },
+      ]),
+    );
+
+    const result = await selectImageForPolicyBlockingReport(
+      { image_reference: requested },
+      testConn(),
+      { fetch: fetchMock },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      selectedImage: {
+        digest: "sha256:selectable",
+        reference: requested,
+        repository: "registry.example.com/team/app",
+        analysisTimestamp: "2026-04-01T00:00:00.000Z",
+      },
+    });
+  });
+
   it("rejects a port-only colon reference without fetching", async () => {
     const fetchMock = vi.fn();
     const result = await selectImageForPolicyBlockingReport(
@@ -282,6 +314,41 @@ describe("selectImageForPolicyBlockingReport", () => {
       messageSource: "selector",
       message:
         "Cannot prove newest image because a matching digest-bearing row lacked a reliable analysis timestamp.",
+    });
+  });
+
+  it("ignores a matching digestless repository row with an invalid timestamp", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          image_digest: "sha256:selectable",
+          full_tag: "registry.example.com/team/app:1",
+          analyzed_at: "2026-04-01T00:00:00Z",
+        },
+        {
+          full_tag: "registry.example.com/team/app:2",
+          analyzed_at: "not-a-timestamp",
+        },
+      ]),
+    );
+
+    const result = await selectImageForPolicyBlockingReport(
+      {
+        image_registry: "registry.example.com",
+        image_repository: "team/app",
+      },
+      testConn(),
+      { fetch: fetchMock },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      selectedImage: {
+        digest: "sha256:selectable",
+        reference: "registry.example.com/team/app:1",
+        repository: "registry.example.com/team/app",
+        analysisTimestamp: "2026-04-01T00:00:00.000Z",
+      },
     });
   });
 
