@@ -1,6 +1,7 @@
 /**
  * Normalize Anchore list/detail image rows across v1/v2 response shapes.
  */
+import { isIP } from "node:net";
 
 /** Extract list rows from GET /v1|/v2/images list payloads (single page or merged). */
 export function extractImageListRows(data: unknown): unknown[] {
@@ -126,6 +127,20 @@ type ReferenceEvidence = {
   invalid: boolean;
 };
 
+export type ImageReferenceEvidenceResult = {
+  references: string[];
+  evidenceIncomplete: boolean;
+};
+
+function referenceEvidenceResult(
+  evidence: ReferenceEvidence,
+): ImageReferenceEvidenceResult {
+  return {
+    references: [...evidence.references],
+    evidenceIncomplete: evidence.invalid,
+  };
+}
+
 function consumeEvidence(evidence: ReferenceEvidence): boolean {
   evidence.scans += 1;
   if (evidence.scans > MAX_IMAGE_REFERENCE_EVIDENCE_SCANS_PER_ROW) {
@@ -166,12 +181,14 @@ function addValidFullReference(
     MAX_IMAGE_REFERENCE_STRING_LENGTH,
   );
   if (reference !== undefined && validateFullImageReference(reference).ok) {
-    evidence.references.add(reference);
     if (
-      evidence.references.size > MAX_NORMALIZED_IMAGE_REFERENCES_PER_ROW
+      !evidence.references.has(reference) &&
+      evidence.references.size >= MAX_NORMALIZED_IMAGE_REFERENCES_PER_ROW
     ) {
       evidence.invalid = true;
+      return;
     }
+    evidence.references.add(reference);
   }
 }
 
@@ -205,10 +222,13 @@ function validRegistryComponent(registry: string): boolean {
     return false;
   }
 
-  const bracketed = registry.match(/^\[([0-9A-Fa-f:.]+)\](?::(\d{1,5}))?$/);
+  const bracketed = registry.match(/^\[([^\]]+)\](?::(\d{1,5}))?$/);
   if (bracketed !== null) {
     const port = bracketed[2];
-    return port === undefined || (Number(port) > 0 && Number(port) <= 65_535);
+    return (
+      isIP(bracketed[1]) === 6 &&
+      (port === undefined || (Number(port) > 0 && Number(port) <= 65_535))
+    );
   }
 
   const parts = registry.split(":");
@@ -291,9 +311,11 @@ function addCoherentDetailReference(
  * Extract locally provable full references from one image row without combining
  * fields across objects or incompatible aliases.
  */
-export function fullImageReferencesFromRow(row: unknown): string[] {
+export function fullImageReferencesFromRow(
+  row: unknown,
+): ImageReferenceEvidenceResult {
   if (row === null || typeof row !== "object") {
-    return [];
+    return { references: [], evidenceIncomplete: false };
   }
   const object = row as Record<string, unknown>;
   const evidence: ReferenceEvidence = {
@@ -313,23 +335,24 @@ export function fullImageReferencesFromRow(row: unknown): string[] {
         : [];
     detailEntryCount += details.length;
     if (detailEntryCount > MAX_IMAGE_DETAIL_ENTRIES_PER_ROW) {
-      return [];
+      evidence.invalid = true;
+      return referenceEvidenceResult(evidence);
     }
     for (const detail of details) {
       if (detail === null || typeof detail !== "object") {
         continue;
       }
       if (!consumeEvidence(evidence)) {
-        return [];
+        return referenceEvidenceResult(evidence);
       }
       const detailObject = detail as Record<string, unknown>;
       addDirectReferences(evidence, detailObject, DETAIL_FULL_REFERENCE_KEYS);
       addCoherentDetailReference(evidence, detailObject);
       if (evidence.invalid) {
-        return [];
+        return referenceEvidenceResult(evidence);
       }
     }
   }
 
-  return evidence.invalid ? [] : [...evidence.references];
+  return referenceEvidenceResult(evidence);
 }

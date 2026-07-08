@@ -16,6 +16,8 @@ import {
 const MAX_DISAMBIGUATION_CANDIDATES = 50;
 const MAX_TAG_HINTS_PER_DIGEST = 8;
 const MAX_TOTAL_DISAMBIGUATION_TAG_HINTS = 64;
+const EVIDENCE_INCOMPLETE_REASON =
+  "Image reference evidence exceeded safety limits.";
 
 export type ResolveCandidate = {
   digest: string;
@@ -88,7 +90,14 @@ export async function resolveImageReference(
   const byDigest = new Map<string, ResolveCandidate>();
 
   for (const row of rows) {
-    const references = fullImageReferencesFromRow(row);
+    const evidence = fullImageReferencesFromRow(row);
+    if (evidence.evidenceIncomplete) {
+      return {
+        kind: "enumeration_incomplete",
+        reason: EVIDENCE_INCOMPLETE_REASON,
+      };
+    }
+    const references = evidence.references;
     if (!references.includes(requestedReference)) {
       continue;
     }
@@ -97,11 +106,18 @@ export async function resolveImageReference(
       continue;
     }
     const existing = byDigest.get(digest);
-    const hints = references.slice(0, MAX_TAG_HINTS_PER_DIGEST);
+    const hints = [
+      requestedReference,
+      ...references.filter((reference) => reference !== requestedReference),
+    ].slice(0, MAX_TAG_HINTS_PER_DIGEST);
     if (existing === undefined) {
       byDigest.set(digest, { digest, ...(hints.length > 0 ? { tags: hints } : {}) });
     } else if (hints.length > 0) {
-      const mergedTags = new Set([...(existing.tags ?? []), ...hints]);
+      const mergedTags = new Set([
+        requestedReference,
+        ...(existing.tags ?? []).filter((tag) => tag !== requestedReference),
+        ...hints.filter((tag) => tag !== requestedReference),
+      ]);
       byDigest.set(digest, {
         digest,
         tags: [...mergedTags].slice(0, MAX_TAG_HINTS_PER_DIGEST),
@@ -125,16 +141,23 @@ export async function resolveImageReference(
     disambiguation_truncated = true;
   }
 
-  let remainingTagHints = MAX_TOTAL_DISAMBIGUATION_TAG_HINTS;
+  let remainingOptionalTagHints =
+    MAX_TOTAL_DISAMBIGUATION_TAG_HINTS - candidates.length;
   candidates = candidates.map((candidate) => {
-    const tags = candidate.tags?.slice(
-      0,
-      Math.min(MAX_TAG_HINTS_PER_DIGEST, remainingTagHints),
-    );
-    remainingTagHints -= tags?.length ?? 0;
-    return tags !== undefined && tags.length > 0
-      ? { digest: candidate.digest, tags }
-      : { digest: candidate.digest };
+    const optionalTags = (candidate.tags ?? [])
+      .filter((tag) => tag !== requestedReference)
+      .slice(
+        0,
+        Math.min(
+          MAX_TAG_HINTS_PER_DIGEST - 1,
+          remainingOptionalTagHints,
+        ),
+      );
+    remainingOptionalTagHints -= optionalTags.length;
+    return {
+      digest: candidate.digest,
+      tags: [requestedReference, ...optionalTags],
+    };
   });
 
   return {

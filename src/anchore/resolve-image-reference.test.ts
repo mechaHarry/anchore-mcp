@@ -117,7 +117,7 @@ describe("resolveImageReference", () => {
     ).resolves.toEqual({ kind: "no_match" });
   });
 
-  it("ignores a row when oversized evidence could hide the exact reference", async () => {
+  it("returns incomplete when overflow follows an exact reference", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -138,7 +138,62 @@ describe("resolveImageReference", () => {
 
     await expect(
       resolveImageReference(testConn(), FQ_REF, { fetch: fetchMock }),
-    ).resolves.toEqual({ kind: "no_match" });
+    ).resolves.toEqual({
+      kind: "enumeration_incomplete",
+      reason: "Image reference evidence exceeded safety limits.",
+    });
+  });
+
+  it("returns incomplete when overflow could hide the exact reference", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [{
+            image_digest: "sha256:oversized",
+            tags: [
+              ...Array.from(
+                { length: 64 },
+                (_, index) => `docker.io/library/nginx:extra-${index}`,
+              ),
+              FQ_REF,
+            ],
+          }],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await expect(
+      resolveImageReference(testConn(), FQ_REF, { fetch: fetchMock }),
+    ).resolves.toEqual({
+      kind: "enumeration_incomplete",
+      reason: "Image reference evidence exceeded safety limits.",
+    });
+  });
+
+  it("puts requested proof first when it appears after optional hints", async () => {
+    const items = ["a", "b"].map((suffix) => ({
+      image_digest: `sha256:${suffix.repeat(64)}`,
+      tags: [
+        ...Array.from(
+          { length: 9 },
+          (_, index) => `docker.io/library/nginx:${suffix}-hint-${index}`,
+        ),
+        FQ_REF,
+      ],
+    }));
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ items }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const out = await resolveImageReference(testConn(), FQ_REF, { fetch: fetchMock });
+    expect(out.kind).toBe("disambiguate");
+    if (out.kind === "disambiguate") {
+      expect(out.candidates.every((candidate) => candidate.tags?.[0] === FQ_REF)).toBe(true);
+    }
   });
 
   it("bounds per-digest and total serialized disambiguation hints", async () => {
@@ -165,6 +220,9 @@ describe("resolveImageReference", () => {
     expect(out.kind).toBe("disambiguate");
     if (out.kind === "disambiguate") {
       expect(out.candidates.every((candidate) => (candidate.tags?.length ?? 0) <= 8)).toBe(true);
+      expect(
+        out.candidates.every((candidate) => candidate.tags?.[0] === FQ_REF),
+      ).toBe(true);
       expect(
         out.candidates.reduce(
           (total, candidate) => total + (candidate.tags?.length ?? 0),
