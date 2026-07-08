@@ -85,4 +85,93 @@ describe("fullImageReferencesFromRow", () => {
       }),
     ).toEqual([]);
   });
+
+  it("rejects a registry component containing a repository path", () => {
+    expect(
+      fullImageReferencesFromRow({
+        image_detail: {
+          registry: "docker.io/library",
+          repo: "nginx",
+          tag: "1.21",
+        },
+      }),
+    ).toEqual([]);
+  });
+
+  it.each([
+    { registry: "docker.io bad", repository: "library/nginx", tag: "1" },
+    { registry: "docker.io", repository: "/library/nginx", tag: "1" },
+    { registry: "docker.io", repository: "library/nginx/", tag: "1" },
+    { registry: "docker.io", repository: "library/nginx:latest", tag: "1" },
+    { registry: "docker.io", repository: "library\u0000/nginx", tag: "1" },
+  ])("rejects invalid coherent components: %o", (detail) => {
+    expect(fullImageReferencesFromRow({ imageDetail: detail })).toEqual([]);
+  });
+
+  it("fails closed when tags evidence exceeds the per-object entry cap", () => {
+    expect(
+      fullImageReferencesFromRow({
+        full_tag: "registry.example.com/team/app:exact",
+        tags: Array.from(
+          { length: 300 },
+          (_, index) => `registry.example.com/team/app:tag-${index}`,
+        ),
+      }),
+    ).toEqual([]);
+  });
+
+  it("fails closed when nested detail evidence exceeds the per-row cap", () => {
+    expect(
+      fullImageReferencesFromRow({
+        image_detail: Array.from({ length: 300 }, (_, index) => ({
+          registry: "registry.example.com",
+          repo: "team/app",
+          tag: `tag-${index}`,
+        })),
+      }),
+    ).toEqual([]);
+  });
+
+  it("applies the nested detail cap cumulatively across both aliases", () => {
+    expect(
+      fullImageReferencesFromRow({
+        image_detail: Array.from({ length: 64 }, () => ({})),
+        imageDetail: {
+          full_tag: "registry.example.com/team/app:hidden-after-cap",
+        },
+      }),
+    ).toEqual([]);
+  });
+
+  it("counts non-string tag entries against the evidence scan budget", () => {
+    expect(
+      fullImageReferencesFromRow({
+        full_tag: "registry.example.com/team/app:exact",
+        image_detail: Array.from({ length: 4 }, () => ({
+          tags: Array.from({ length: 64 }, () => ({ ignored: true })),
+        })),
+      }),
+    ).toEqual([]);
+  });
+
+  it("fails closed when unique normalized references exceed the row cap", () => {
+    expect(
+      fullImageReferencesFromRow({
+        full_tag: "registry.example.com/team/app:exact",
+        tags: Array.from(
+          { length: 40 },
+          (_, index) => `registry.example.com/team/app:tag-${index}`,
+        ),
+      }),
+    ).toEqual([]);
+  });
+
+  it("fails closed when a reference evidence string exceeds its length cap", () => {
+    expect(
+      fullImageReferencesFromRow({
+        full_tag: "registry.example.com/team/app:exact",
+        fulltag: `registry.example.com/team/app:${"x".repeat(2_000)}`,
+      }),
+    ).toEqual([]);
+  });
 });

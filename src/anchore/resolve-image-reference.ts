@@ -14,6 +14,8 @@ import {
 } from "./image-records.js";
 
 const MAX_DISAMBIGUATION_CANDIDATES = 50;
+const MAX_TAG_HINTS_PER_DIGEST = 8;
+const MAX_TOTAL_DISAMBIGUATION_TAG_HINTS = 64;
 
 export type ResolveCandidate = {
   digest: string;
@@ -31,11 +33,6 @@ export type ResolveImageReferenceResult =
     }
   | { kind: "enumeration_incomplete"; reason: string }
   | { kind: "upstream_error"; message: string };
-
-function tagHintsFromRow(row: unknown): string[] | undefined {
-  const tags = fullImageReferencesFromRow(row);
-  return tags.length > 0 ? tags : undefined;
-}
 
 /**
  * Resolve a full image reference using the API version's full-tag query key (paginated).
@@ -100,14 +97,14 @@ export async function resolveImageReference(
       continue;
     }
     const existing = byDigest.get(digest);
-    const hints = tagHintsFromRow(row);
+    const hints = references.slice(0, MAX_TAG_HINTS_PER_DIGEST);
     if (existing === undefined) {
-      byDigest.set(digest, { digest, ...(hints !== undefined ? { tags: hints } : {}) });
-    } else if (hints !== undefined) {
+      byDigest.set(digest, { digest, ...(hints.length > 0 ? { tags: hints } : {}) });
+    } else if (hints.length > 0) {
       const mergedTags = new Set([...(existing.tags ?? []), ...hints]);
       byDigest.set(digest, {
         digest,
-        tags: [...mergedTags],
+        tags: [...mergedTags].slice(0, MAX_TAG_HINTS_PER_DIGEST),
       });
     }
   }
@@ -127,6 +124,18 @@ export async function resolveImageReference(
     candidates = sorted.slice(0, MAX_DISAMBIGUATION_CANDIDATES);
     disambiguation_truncated = true;
   }
+
+  let remainingTagHints = MAX_TOTAL_DISAMBIGUATION_TAG_HINTS;
+  candidates = candidates.map((candidate) => {
+    const tags = candidate.tags?.slice(
+      0,
+      Math.min(MAX_TAG_HINTS_PER_DIGEST, remainingTagHints),
+    );
+    remainingTagHints -= tags?.length ?? 0;
+    return tags !== undefined && tags.length > 0
+      ? { digest: candidate.digest, tags }
+      : { digest: candidate.digest };
+  });
 
   return {
     kind: "disambiguate",

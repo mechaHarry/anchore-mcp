@@ -117,6 +117,63 @@ describe("resolveImageReference", () => {
     ).resolves.toEqual({ kind: "no_match" });
   });
 
+  it("ignores a row when oversized evidence could hide the exact reference", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              image_digest: "sha256:oversized",
+              full_tag: FQ_REF,
+              tags: Array.from(
+                { length: 300 },
+                (_, index) => `docker.io/library/nginx:extra-${index}`,
+              ),
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await expect(
+      resolveImageReference(testConn(), FQ_REF, { fetch: fetchMock }),
+    ).resolves.toEqual({ kind: "no_match" });
+  });
+
+  it("bounds per-digest and total serialized disambiguation hints", async () => {
+    const items = Array.from({ length: 10 }, (_, digestIndex) => ({
+      image_digest: `sha256:${digestIndex.toString(16).padStart(64, "0")}`,
+      full_tag: FQ_REF,
+      tags: Array.from(
+        { length: 20 },
+        (_, tagIndex) =>
+          `docker.io/library/nginx:d${digestIndex}-hint-${tagIndex}`,
+      ),
+    }));
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ items }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const out = await resolveImageReference(testConn(), FQ_REF, {
+      fetch: fetchMock,
+    });
+
+    expect(out.kind).toBe("disambiguate");
+    if (out.kind === "disambiguate") {
+      expect(out.candidates.every((candidate) => (candidate.tags?.length ?? 0) <= 8)).toBe(true);
+      expect(
+        out.candidates.reduce(
+          (total, candidate) => total + (candidate.tags?.length ?? 0),
+          0,
+        ),
+      ).toBeLessThanOrEqual(64);
+    }
+  });
+
   it("matches a nested reference with a registry port and real tag", async () => {
     const requested = "registry.example.com:5000/team/app:release";
     const fetchMock = vi.fn().mockResolvedValue(
