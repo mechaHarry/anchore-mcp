@@ -7,8 +7,14 @@ implementation_commits:
   - d6c639f
   - 1b7efb4
   - 6702c39
+  - 97c27c4
+  - 2c874f7
+  - 829c7e6
+  - acd38bb
+  - 76587cd
 documentation_commits:
   - 68d5289
+  - dd5a31f
 ---
 
 # Image Registry and Repository Lookup Implementation Plan
@@ -19,7 +25,7 @@ documentation_commits:
 
 **Goal:** Replace the ambiguous combined repository locator with the required `image_registry` and `image_repository` pair for policy-blocking vulnerability lookup.
 
-**Architecture:** Keep digest and exact tagged-reference selection unchanged at the MCP boundary. Resolve exact references through `GET /v2/images?full_tag=...` or legacy `GET /v1/images?fulltag=...`; resolve a registry/repository pair through the wire-faithful `GET /v2/summaries/image-tags?registry=...&repository=...`, then use the selected digest for downstream image routes. Newest selection fails closed if any exact matching digest-bearing candidate lacks a reliable analysis timestamp; matching digestless rows may be ignored. Make the MCP schema, safe error provenance, examples, and historical design record describe the breaking contract consistently.
+**Architecture:** Keep digest and exact tagged-reference selection explicit at the MCP boundary. The shared resolver queries `GET /v2/images?full_tag=...` or legacy `GET /v1/images?fulltag=...`, requires bounded exact local reference evidence, and uses 0/1/N digest cardinality without timestamps. Policy-blocking repository selection calls verified `GET /v2/summaries/image-tags?registry=...&repository=...` directly in v2; v1 calls its summary route only after compatible capability proof from same-origin, no-follow, bounded `/v1/openapi.json`. Only `anchore_policy_blocking_vulnerabilities` chooses newest and applies fail-closed timestamp trust to its exact-reference and registry/repository locators.
 
 **Tech Stack:** TypeScript, Zod, MCP SDK, Vitest, ESLint, pnpm.
 
@@ -35,6 +41,8 @@ documentation_commits:
 - Modify `README.md`, `examples/codex-agent-setup/README.md`, `docs/research/anchore-api-notes.md`, `docs/superpowers/specs/2026-07-07-image-registry-repository-lookup-design.md`, and `docs/superpowers/specs/2026-05-04-policy-blocking-vulnerabilities-design.md`: consumer-facing contract, route research, and design corrections.
 - Add `docs/solutions/integration-issues/2026-07-08-anchore-v2-image-lookup-routes.md`: durable integration learning for identifier-specific lookup routes.
 - Modify `AGENTS.md`: short operational pointer to the fossilized lookup-route learning.
+- Add `src/anchore/image-tag-summary-capabilities.ts`: fail-closed v1 OpenAPI capability gate.
+- Harden shared exact-reference evidence and OpenAPI redirect handling in follow-up commits recorded above.
 
 ### Task 1: Make repository selection component-aware
 
@@ -94,8 +102,9 @@ documentation_commits:
   full tag/reference fields. In `selectByRepository`, set separate `registry`
   and `repository` request parameters, require an exact component-pair match,
   and compose `${registry}/${repository}` solely for `SelectedImage.repository`.
-  Fail closed if any exact matching digest-bearing candidate lacks a reliable
-  analysis timestamp; digestless rows cannot be selected and may be ignored.
+  In the policy-blocking selector, fail closed if any exact matching
+  digest-bearing candidate lacks a reliable analysis timestamp; digestless rows
+  cannot be selected and may be ignored.
 
 - [x] **Step 4: Run the focused tests to verify they pass**
 
@@ -187,8 +196,8 @@ documentation_commits:
   `registry` and `repository` query parameters and that exact references use
   `/v2/images?full_tag=...` or legacy `/v1/images?fulltag=...`. Cover `items`
   plus `total_rows` pagination, cap exhaustion, exact local tag matching,
-  numeric epoch `analyzed_at`, fail-closed digest-bearing timestamp gaps, and
-  ignored digestless rows.
+  numeric epoch `analyzed_at`, policy-selector fail-closed digest-bearing
+  timestamp gaps, and ignored digestless rows.
 
 - [x] **Step 2: Run focused tests to verify they fail**
 
@@ -205,9 +214,9 @@ documentation_commits:
   and output shape. Translate the public `fulltag` convenience input to
   version-specific wire keys: `full_tag` for v2 and `fulltag` for v1. Remove
   `registry`, `repository`, and `repo` from the `/images` fallback allowlist;
-  deployment OpenAPI may still add advertised custom parameters. Require a
-  reliable timestamp for every exact matching digest-bearing candidate, while
-  allowing digestless rows to be ignored.
+  deployment OpenAPI may still add advertised custom parameters. In the policy
+  selector only, require a reliable timestamp for every exact matching
+  digest-bearing candidate while allowing digestless rows to be ignored.
 
 - [x] **Step 4: Run focused and full verification**
 
@@ -286,3 +295,35 @@ documentation_commits:
   git add AGENTS.md README.md examples/codex-agent-setup/README.md docs/research/anchore-api-notes.md docs/solutions/integration-issues/2026-07-08-anchore-v2-image-lookup-routes.md docs/superpowers/specs/2026-07-07-image-registry-repository-lookup-design.md docs/superpowers/specs/2026-05-04-policy-blocking-vulnerabilities-design.md docs/superpowers/plans/2026-07-07-image-registry-repository-lookup.md
   git commit -S -m "docs: clarify Anchore image lookup routes"
   ```
+
+### Task 5: Final trust-boundary hardening follow-ups
+
+This completed follow-up records the post-review guarantees added after the
+original four tasks. It is audit history, not an executable queue.
+
+- [x] **Require exact local reference evidence** (`97c27c4`)
+
+  Treat `/images` full-tag filters as narrowing only. Accept a digest only when
+  the returned row proves the exact requested reference; ignore unrelated rows.
+
+- [x] **Capability-gate v1 repository selection** (`2c874f7`)
+
+  Call the verified v2 summary route directly. For v1, require
+  `/v1/openapi.json` to advertise a prefixed or unprefixed `GET` operation with
+  direct `registry` and `repository` query parameters, or return the static
+  unsupported error without calling `/v1/summaries/image-tags`.
+
+- [x] **Block OpenAPI redirect following** (`829c7e6`)
+
+  Fetch version-matched OpenAPI from the configured origin with a bounded body
+  and manual redirect handling so redirects cannot establish capabilities.
+
+- [x] **Bound exact-reference evidence inspection** (`acd38bb`)
+
+  Cap per-row evidence work and return explicit `enumeration_incomplete` when
+  overflow prevents a complete proof, rather than reporting `no_match`.
+
+- [x] **Preserve exact proof in bounded results** (`76587cd`)
+
+  Keep the requested reference in disambiguation hints and preserve the exact
+  evidence signal while limiting optional metadata.

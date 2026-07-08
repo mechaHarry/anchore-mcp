@@ -147,12 +147,14 @@ sequenceDiagram
 - Add: `src/anchore/resolve-image-reference.ts` (or `src/tools/image-reference.ts` if preferred—prefer `anchore/` for reuse).
 - Add: `src/anchore/resolve-image-reference.test.ts`.
 
-**Approach:** Validate FQDN-ish reference (planning default); `URLSearchParams` / encoding per R4; call the paginated list with `full_tag` for v2 or `fulltag` for v1; extract digest + tag fields from `items`/`images` rows using shared normalization (reuse or extend `summarizeImages` extraction logic in a small `image-records.ts` helper if needed).
+**Approach:** Validate FQDN-ish reference (planning default); `URLSearchParams` / encoding per R4; call the paginated list with `full_tag` for v2 or `fulltag` for v1; treat that server filter as narrowing only. Extract bounded local full-reference evidence from each `items`/`images` row and accept its digest only when the exact requested reference is proven. Ignore unrelated rows; return `enumeration_incomplete` when evidence bounds prevent a complete proof.
 
 **Patterns to follow:** `docs/solutions` digest vs tag; no tag in SBOM path.
 
 **Test scenarios:**
 - **Happy path:** One matching row after the version-specific full-tag wire filter → digest.
+- **Trust boundary:** A digest row without exact local reference evidence does not match, even if the backend returned it for the filter.
+- **Evidence cap:** Overflow that could hide or follow an exact reference returns `enumeration_incomplete`, not `no_match`.
 - **Edge case:** Multiple rows same digest different tags → count as one (R5 dedupe).
 - **Error path:** Zero matches → structured `no_match` (not HTTP raw).
 - **Error path:** Multi digest disambiguation; truncated candidate list sets `disambiguation_truncated`.
