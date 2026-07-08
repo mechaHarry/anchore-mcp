@@ -47,12 +47,12 @@ For a repo-local Codex setup that other agents can reuse without committing secr
 
 ### Image digest vs reference
 
-Anchore’s per-image HTTP routes use the **digest** in the path (`/v2/images/{digest}/…`). For convenience, digest-keyed tools also accept **`image_reference`**: a fully qualified image string (`registry/repo:tag`, e.g. `docker.io/library/nginx:latest`). The MCP resolves that to a digest by calling `GET /v2/images?fulltag=…` (paginated client-side) before the real request. Short names like `nginx:latest` are rejected; use a registry-qualified reference.
+Anchore’s per-image HTTP routes use the **digest** in the path (`/v2/images/{digest}/…`). For convenience, digest-keyed tools also accept **`image_reference`**: a fully qualified tagged image string (`registry/repository:tag`, e.g. `docker.io/library/nginx:latest`). The MCP resolves the exact tag to a digest with `GET /v2/images?full_tag=…` (paginated client-side), then makes the digest-keyed request. Short names like `nginx:latest` are rejected; use a registry-qualified reference.
 
 - Provide **exactly one** of `image_digest` or `image_reference` (not both, not neither).
 - **`anchore_image_policy_check`** and **`anchore_remediation_handoff`** still have an optional **`tag`** parameter for Anchore’s `/check` query when your deployment requires it — that is separate from `image_reference` and is never auto-filled from it.
 - **`anchore_list_images`** merges paged list responses until the deployment indicates there is no next page. If internal caps stop the walk early, the tool JSON may include `listEnumerationIncomplete` / `listEnumerationReason`. Resolution uses its own caps and may return `imageReferenceResolution` with `enumeration_incomplete` when the catalog cannot be fully scanned.
-- **List filters:** Besides `fulltag` and `vulnerability_id`, you can pass **`list_query`**: a map of query parameter names to string values. Allowed keys are the union of a small built-in set (`fulltag`, `limit`, `name`, `registry`, …) and any `in: query` parameters defined for `GET /v1|/v2/images` in your deployment OpenAPI (fetched when `list_query` is non-empty, then cached). Unknown keys are dropped and noted in the summary line.
+- **List filters:** `anchore_list_images` keeps `fulltag` as a public convenience input but sends the documented wire key **`full_tag`** to `GET /v1|/v2/images`. You can also pass `vulnerability_id` or **`list_query`**, a map of query parameter names to string values. Allowed `list_query` keys come from a small built-in set plus the `in: query` parameters defined for `GET /v1|/v2/images` in your deployment OpenAPI (fetched when `list_query` is non-empty, then cached). Unknown keys are dropped and noted in the summary line. The built-in fallback does **not** assume that `registry`, `repository`, or `repo` filter `/images`; only a deployment OpenAPI that advertises them can allow them there.
 
 ### Policy-blocking vulnerabilities
 
@@ -61,8 +61,10 @@ Anchore’s per-image HTTP routes use the **digest** in the path (`/v2/images/{d
 Inputs accept exactly one image locator:
 
 - `image_digest`
-- `image_reference` (`registry/repo:tag`)
-- `image_repository` (`registry/repo`, newest analyzed match)
+- `image_reference` (`registry/repository:tag`, exact tagged image)
+- `image_registry` plus `image_repository` (`registry` plus `repository`, newest analyzed tag)
+
+The registry/repository pair is supported only by this policy-blocking tool. It calls `GET /v2/summaries/image-tags?registry=…&repository=…`, selects the newest matching row with a valid `analyzed_at`, and then uses that row’s digest for policy and vulnerability calls. `image_repository` never includes the registry or tag and cannot be supplied alone.
 
 When the selected image has a full tag, the tool uses that reference as Anchore `/check` `tag` context unless `tag` is supplied explicitly. This keeps the HTTP path digest-centric while avoiding a second lookup for deployments that require tag context during policy evaluation.
 
@@ -129,7 +131,7 @@ Mitigations:
 1. **Trust the workspace first**, then enable or restart the MCP server / agent session.
 2. Use an **absolute path** to `dist/index.js` in MCP config (wrong `cwd` → wrong relative path → crash on import; check stderr for `[anchore-mcp] startup:`).
 
-Image list **filtering** is limited to what the tool forwards (`fulltag`, `vulnerability_id`) and what your Anchore **`/v2/openapi.json`** documents for `GET /v2/images`. There is no generic substring filter in the API in many deployments; tighter server-side filters are a follow-up (extra query parameters from your OpenAPI spec).
+Image list **filtering** is limited to what the tool forwards (`fulltag` translated to wire `full_tag`, plus `vulnerability_id`) and what your Anchore **`/v2/openapi.json`** documents for `GET /v2/images`. Do not treat registry/repository selection as a fallback `/images` filter: the policy-blocking tool uses `/v2/summaries/image-tags`, and other custom filters must be advertised by your deployment OpenAPI.
 
 ## Status
 

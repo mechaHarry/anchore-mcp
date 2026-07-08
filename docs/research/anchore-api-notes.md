@@ -10,7 +10,7 @@ Use the spec served by your Anchore API host, for example:
 
 That file is the source of truth for paths, query parameters, and response shapes.
 
-This MCP’s **`anchore_list_images`** tool uses **`list_query`** passthrough: allowlisted keys include the deployment’s `GET /v2/images` (or `/v1/images`) query parameters from OpenAPI (when `list_query` is used) plus a small static fallback set. **GET** calls use bounded retries for transient failures — see `ANCHORE_HTTP_*` in README / `env.example`.
+This MCP’s **`anchore_list_images`** tool uses **`list_query`** passthrough: allowlisted keys include the deployment’s `GET /v2/images` (or `/v1/images`) query parameters from OpenAPI (when `list_query` is used) plus a small static fallback set. The public `fulltag` convenience input is translated to the documented wire parameter `full_tag`. The static fallback set intentionally does not assume that `registry`, `repository`, or `repo` filter `/images`; a deployment may use those keys there only when its OpenAPI explicitly advertises them. **GET** calls use bounded retries for transient failures — see `ANCHORE_HTTP_*` in README / `env.example`.
 
 ## Auth
 
@@ -21,13 +21,24 @@ This MCP’s **`anchore_list_images`** tool uses **`list_query`** passthrough: a
 
 | Area | Method + path | Notes |
 |------|----------------|-------|
-| Images | `GET /v2/images` | List images; large lists may use an `items` array wrapper |
+| Images | `GET /v2/images` | List images; exact tagged lookup uses query `full_tag=registry/repository:tag`; large lists may use an `items` array wrapper |
+| Image tag summaries | `GET /v2/summaries/image-tags` | Registry/repository lookup uses separate `registry` and `repository` query parameters; response uses paged `items` plus `total_rows` |
 | Image vulns | `GET /v2/images/{image_digest}/vuln/all` | Vulnerability type `all`; see OpenAPI for other `vuln/{type}` routes |
 | Image SBOM | `GET /v2/images/{image_digest}/sboms/native-json` | Syft native JSON (“normal” mode in MCP) — segment is plural **`sboms`** |
 | Image SBOM | `GET /v2/images/{image_digest}/sboms/spdx-json` | SPDX JSON |
 | Image SBOM | `GET /v2/images/{image_digest}/sboms/cyclonedx-json` | CycloneDX JSON |
 | Policy check | `GET /v2/images/{image_digest}/check` | Optional query: `tag`, `base_digest` — confirm on your OpenAPI |
 | Image record | `GET /v2/images/{image_digest}` | Single-image metadata (fields vary by version) |
+
+### Image lookup route distinction
+
+Use the route that matches the identifier supplied by the MCP caller:
+
+- `image_reference` is a fully qualified `registry/repository:tag`. Resolve only that exact tag with `GET /v2/images?full_tag=...`, then call the digest-keyed image route.
+- `image_registry` plus `image_repository` is a component pair used by `anchore_policy_blocking_vulnerabilities`. Query `GET /v2/summaries/image-tags?registry=...&repository=...`, require an exact pair match, and select the newest digest-bearing row with a valid `analyzed_at`.
+- Do not emulate the second behavior with assumed `registry` or `repository` parameters on `GET /v2/images`. Those are not portable fallback filters for that operation.
+
+Both the [current Anchore API specification](https://docs.anchore.com/current/docs/api/specs/anchore_api_swagger.yaml) and the [Anchore Enterprise 5.8 v2 specification](https://docs.anchore.com/5.8/docs/api/v2/specs/anchore_api_swagger.yaml) document `full_tag` on `/images` and the separate registry/repository filters on `/summaries/image-tags`. The deployment’s own `GET /v2/openapi.json` remains authoritative because supported operations and response shapes can vary by installed version.
 
 ### SBOM path pitfall (400 Bad Request)
 
@@ -45,5 +56,6 @@ Set environment variable `ANCHORE_API_VERSION=v1` if you must talk to older beha
 ## References
 
 - [Migrating from API V1 to V2](https://docs.anchore.com/5.8/docs/api/v2/v1_migration/)
-- [Anchore Enterprise API](https://docs.anchore.com/)
+- [Current Anchore API specification](https://docs.anchore.com/current/docs/api/specs/anchore_api_swagger.yaml)
+- [Anchore Enterprise 5.8 v2 API specification](https://docs.anchore.com/5.8/docs/api/v2/specs/anchore_api_swagger.yaml)
 - Deployment **`/v2/openapi.json`** — source of truth for path/query/body

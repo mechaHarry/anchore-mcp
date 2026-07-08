@@ -36,10 +36,23 @@ Examples:
 
 For the component locator, the MCP validates both non-empty strings, rejects
 control characters and overlong values, and rejects all mixed or incomplete
-locator combinations. It requests the Anchore image list with separate
-`registry` and `repository` query parameters. It then only considers rows whose
-separate registry and repository metadata match both requested components
-exactly, selecting the newest row with a digest and reliable analysis timestamp.
+locator combinations. It requests
+`GET /v2/summaries/image-tags?registry=...&repository=...`, walks the bounded
+`items`/`total_rows` pages, and considers only rows whose `full_tag` matches both
+requested components exactly. It selects the newest digest-bearing row with a
+valid `analyzed_at`; missing or tied newest timestamps are errors rather than
+guessing.
+
+Exact `image_reference` selection remains a separate operation:
+`GET /v2/images?full_tag=registry/repository:tag`. The MCP requires an exact
+local tag match before using the resolved digest. The public
+`anchore_list_images.fulltag` convenience input is likewise translated to the
+wire key `full_tag`.
+
+The MCP does not assume that `registry`, `repository`, or `repo` filter
+`GET /v2/images`. Such keys are accepted there only if the deployment’s
+`/v2/openapi.json` advertises them for that operation. That deployment schema is
+authoritative.
 
 The response keeps `selectedImage.repository` as the human-friendly qualified
 `registry/repository` value because it is output evidence, not a tool input.
@@ -52,7 +65,8 @@ pagination bounds, ambiguity detection, and safe error mapping remain unchanged.
 
 ## Tests and documentation
 
-Tests will cover the separate query parameters, exact nested v2 registry/repo
-matching, newest-image selection, incomplete and mixed component pairs, and
-safe error redaction. README and tool-schema descriptions will distinguish an
-exact tagged `image_reference` from the registry/repository lookup pair.
+Tests cover the summary route and separate query parameters, exact `full_tag`
+matching, valid `analyzed_at` newest-image selection, bounded pagination,
+incomplete and mixed component pairs, `fulltag` to `full_tag` translation, and
+safe error redaction. README and tool-schema descriptions distinguish an exact
+tagged `image_reference` from the registry/repository lookup pair.

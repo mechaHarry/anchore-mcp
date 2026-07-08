@@ -20,6 +20,7 @@ Inputs:
 
 - `image_digest?: string`
 - `image_reference?: string`
+- `image_registry?: string`
 - `image_repository?: string`
 - `tag?: string`
 - `base_digest?: string`
@@ -27,8 +28,10 @@ Inputs:
 Exactly one image locator is required:
 
 - `image_digest` uses the supplied digest directly.
-- `image_reference` is a fully qualified image reference such as `registry/repo:tag`.
-- `image_repository` is a qualified repository/name without a tag, such as `registry/repo` or `registry/namespace/repo`; the tool selects the newest analyzed image across matching records.
+- `image_reference` is a fully qualified tagged reference such as `registry/repository:tag`; the MCP resolves the exact tag through `GET /v2/images?full_tag=...`.
+- `image_registry` and `image_repository` must be supplied together. They are separate components such as `registry.example.com` and `team/app`; the MCP selects the newest analyzed tag from the exact pair through `GET /v2/summaries/image-tags?registry=...&repository=...`.
+
+The former combined `image_repository="registry/repository"` input is not supported. `image_repository` contains neither registry nor tag and is never a locator by itself.
 
 `tag` and `base_digest` are passed only to Anchore `/check` as policy-evaluation context. They never replace the digest path key and are not inferred from unrelated inputs.
 
@@ -37,8 +40,10 @@ Exactly one image locator is required:
 The selector chooses one image before policy and vulnerability calls:
 
 - For `image_digest`, use the digest directly.
-- For `image_reference`, list images by `fulltag` where supported, then select the newest analyzed image if multiple digests match.
-- For `image_repository`, list or scan bounded image records using allowlisted query parameters where possible, then select the newest analyzed image whose repository/name matches.
+- For `image_reference`, query `/v2/images` with wire parameter `full_tag`, require an exact local tag match, then use the selected digest.
+- For `image_registry` plus `image_repository`, walk bounded `/v2/summaries/image-tags` pages with separate registry/repository filters, require an exact `full_tag` component match, then select the newest digest-bearing row with a valid `analyzed_at`.
+
+The selector does not fall back to assumed `registry`, `repository`, or `repo` filters on `/v2/images`. The deployment’s `/v2/openapi.json` is authoritative for parameters supported by that operation. The public `anchore_list_images.fulltag` input is a separate convenience field that is translated to `full_tag` on the wire.
 
 Newest image selection requires reliable timestamp metadata from Anchore image records. If timestamps are missing, unparsable, or tied across multiple digests, the tool returns an MCP error rather than guessing.
 

@@ -5,8 +5,10 @@ repository only, so another agent or LLM can ask focused questions such as:
 
 ```text
 Use the anchore-mcp MCP server. Call anchore_policy_blocking_vulnerabilities
-with image_repository="psf/help-site". Return only the selected image and
-policy-blocking vulnerability count.
+with image_registry="containers.example.com" and
+image_repository="psf/help-site". Return only the selected image and
+policy-blocking vulnerability count. The tool selects the newest analyzed tag
+for that exact registry/repository pair.
 ```
 
 ## Shape
@@ -141,8 +143,9 @@ directory:
 
 ```text
 Use the anchore-mcp MCP server. Call anchore_policy_blocking_vulnerabilities
-with image_repository="psf/help-site". Do not inspect or print env/config
-secrets. Return compact JSON with policyRemediationStatus, selectedImage, and
+with image_registry="containers.example.com" and
+image_repository="psf/help-site". Do not inspect or print env/config secrets.
+Return compact JSON with policyRemediationStatus, selectedImage, and
 blockingVulnerabilityCount.
 ```
 
