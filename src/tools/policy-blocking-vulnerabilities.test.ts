@@ -342,6 +342,107 @@ describe("runPolicyBlockingVulnerabilities", () => {
     );
   });
 
+  it("does not evaluate policy for a conflicting exact-reference row", async () => {
+    const requested = "docker.io/library/nginx:1.25";
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          image_digest: "sha256:wrong",
+          image_detail: {
+            registry: "docker.io",
+            repo: "library/nginx",
+            repository: "customer/private",
+            tag: "1.25",
+          },
+          analyzed_at: "2026-04-02T00:00:00Z",
+        },
+      ]),
+    );
+
+    const result = await runPolicyBlockingVulnerabilities(
+      { image_reference: requested },
+      { connection: testConnection(), fetch: fetchMock },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(textPayload(result))).toMatchObject({
+      error: true,
+      policyRemediationStatus: "image_selection_error",
+    });
+  });
+
+  it("fails safely without policy evaluation or raw leakage when evidence overflows", async () => {
+    const requested = "docker.io/library/nginx:1.25";
+    const rawMarker = "CUSTOMER_SECRET_MARKER";
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          image_digest: "sha256:overflow",
+          full_tag: requested,
+          tags: [
+            ...Array.from(
+              { length: 64 },
+              (_, index) => `docker.io/library/nginx:extra-${index}`,
+            ),
+            `docker.io/library/nginx:${rawMarker}`,
+          ],
+          analyzed_at: "2026-04-02T00:00:00Z",
+        },
+      ]),
+    );
+
+    const result = await runPolicyBlockingVulnerabilities(
+      { image_reference: requested },
+      { connection: testConnection(), fetch: fetchMock },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(textPayload(result)).not.toContain(rawMarker);
+    expect(JSON.parse(textPayload(result))).toEqual({
+      error: true,
+      message: "Image reference evidence exceeded safety limits.",
+      policyRemediationStatus: "image_selection_error",
+    });
+    for (const call of vi.mocked(safeLog.logStderrLine).mock.calls) {
+      expect(call[0]).not.toContain(rawMarker);
+    }
+  });
+
+  it("evaluates policy for a coherent nested exact-reference row", async () => {
+    const requested = "docker.io/library/nginx:1.25";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        okList([
+          {
+            image_digest: "sha256:coherent",
+            image_detail: {
+              registry: "docker.io",
+              repository: "library/nginx",
+              tag: "1.25",
+            },
+            analyzed_at: "2026-04-02T00:00:00Z",
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "pass" }), { status: 200 }),
+      );
+
+    const result = await runPolicyBlockingVulnerabilities(
+      { image_reference: requested },
+      { connection: testConnection(), fetch: fetchMock },
+    );
+
+    expect(result.isError).not.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
+      "/v2/images/sha256%3Acoherent/check?",
+    );
+  });
+
   it.each([
     { image_registry: "registry.example.com" },
     { image_repository: "team/app" },

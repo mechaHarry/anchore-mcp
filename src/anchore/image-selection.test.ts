@@ -257,6 +257,100 @@ describe("selectImageForPolicyBlockingReport", () => {
     });
   });
 
+  it("does not synthesize an exact reference from conflicting repository aliases", async () => {
+    const requested = "docker.io/library/nginx:1.25";
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          image_digest: "sha256:wrong",
+          image_detail: {
+            registry: "docker.io",
+            repo: "library/nginx",
+            repository: "customer/private",
+            tag: "1.25",
+          },
+          analyzed_at: "2026-04-02T00:00:00Z",
+        },
+      ]),
+    );
+
+    await expect(
+      selectImageForPolicyBlockingReport(
+        { image_reference: requested },
+        testConn(),
+        { fetch: fetchMock },
+      ),
+    ).resolves.toEqual({
+      ok: false,
+      status: "image_selection_error",
+      messageSource: "selector",
+      message:
+        "No matching image row had both a digest and a reliable analysis timestamp.",
+    });
+  });
+
+  it("fails closed when exact-reference evidence exceeds safety limits", async () => {
+    const requested = "docker.io/library/nginx:1.25";
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          image_digest: "sha256:overflow",
+          full_tag: requested,
+          tags: Array.from(
+            { length: 65 },
+            (_, index) => `docker.io/library/nginx:extra-${index}`,
+          ),
+          analyzed_at: "2026-04-02T00:00:00Z",
+        },
+      ]),
+    );
+
+    await expect(
+      selectImageForPolicyBlockingReport(
+        { image_reference: requested },
+        testConn(),
+        { fetch: fetchMock },
+      ),
+    ).resolves.toEqual({
+      ok: false,
+      status: "image_selection_error",
+      messageSource: "selector",
+      message: "Image reference evidence exceeded safety limits.",
+    });
+  });
+
+  it("selects an exact coherent nested reference before checking timestamp trust", async () => {
+    const requested = "docker.io/library/nginx:1.25";
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          image_digest: "sha256:coherent",
+          image_detail: {
+            registry: "docker.io",
+            repository: "library/nginx",
+            tag: "1.25",
+          },
+          analyzed_at: "2026-04-02T00:00:00Z",
+        },
+      ]),
+    );
+
+    await expect(
+      selectImageForPolicyBlockingReport(
+        { image_reference: requested },
+        testConn(),
+        { fetch: fetchMock },
+      ),
+    ).resolves.toMatchObject({
+      ok: true,
+      selectedImage: {
+        digest: "sha256:coherent",
+        reference: requested,
+        analysisTimestamp: "2026-04-02T00:00:00.000Z",
+      },
+    });
+  });
+
   it("selects the newest exact registry and repository pair across tags", async () => {
     const registry = "registry.example.com";
     const repository = "team/app";

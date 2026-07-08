@@ -4,6 +4,7 @@ import { createAnchoreClient, type AnchoreClientOptions } from "./client.js";
 import {
   digestFromImageRow,
   extractImageListRows,
+  fullImageReferencesFromRow,
   validateFullImageReference,
 } from "./image-records.js";
 import {
@@ -53,21 +54,6 @@ type TimestampedCandidate = SelectedImage & {
   parsedTimestamp: number;
 };
 
-const REFERENCE_KEYS = [
-  "fulltag",
-  "full_tag",
-  "tag",
-  "image_tag",
-  "imageTag",
-] as const;
-
-const IMAGE_DETAIL_KEYS = [
-  "image_detail",
-  "imageDetail",
-  "image_details",
-  "imageDetails",
-] as const;
-
 const TIMESTAMP_KEYS = [
   "analyzed_at",
   "analyzedAt",
@@ -85,6 +71,8 @@ const TIMESTAMP_KEYS = [
 const MAX_PLAUSIBLE_EPOCH_SECONDS = 10_000_000_000;
 const UNPROVEN_NEWEST_IMAGE_MESSAGE =
   "Cannot prove newest image because a matching digest-bearing row lacked a reliable analysis timestamp.";
+const INCOMPLETE_REFERENCE_EVIDENCE_MESSAGE =
+  "Image reference evidence exceeded safety limits.";
 const V1_REPOSITORY_SELECTION_UNAVAILABLE_MESSAGE =
   "Repository selection is unavailable for this v1 deployment because its OpenAPI does not advertise registry and repository filters on image tag summaries.";
 
@@ -111,67 +99,6 @@ function stringField(row: Record<string, unknown>, key: string): string | undefi
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
     : undefined;
-}
-
-function stringFields(row: Record<string, unknown>, keys: readonly string[]): string[] {
-  const values: string[] = [];
-  for (const key of keys) {
-    const value = stringField(row, key);
-    if (value !== undefined) {
-      values.push(value);
-    }
-  }
-  return values;
-}
-
-function uniqueStrings(values: string[]): string[] {
-  return [...new Set(values)];
-}
-
-function imageDetailRows(row: Record<string, unknown>): Array<Record<string, unknown>> {
-  const out: Array<Record<string, unknown>> = [];
-  for (const key of IMAGE_DETAIL_KEYS) {
-    const value = row[key];
-    const values = Array.isArray(value) ? value : [value];
-    for (const item of values) {
-      if (item !== null && typeof item === "object") {
-        out.push(item as Record<string, unknown>);
-      }
-    }
-  }
-  return out;
-}
-
-function derivedFullTagFromDetail(detail: Record<string, unknown>): string | undefined {
-  const registry = stringField(detail, "registry");
-  const repo = stringField(detail, "repo") ?? stringField(detail, "repository");
-  const tag = stringField(detail, "tag");
-  if (registry === undefined || repo === undefined || tag === undefined) {
-    return undefined;
-  }
-  return `${registry}/${repo}:${tag}`;
-}
-
-function detailReferences(detail: Record<string, unknown>): string[] {
-  const values = stringFields(detail, [
-    "fulltag",
-    "full_tag",
-    "image_tag",
-    "imageTag",
-  ]);
-  const derived = derivedFullTagFromDetail(detail);
-  if (derived !== undefined) {
-    values.push(derived);
-  }
-  return uniqueStrings(values);
-}
-
-function referencesFromRow(row: Record<string, unknown>): string[] {
-  const values = stringFields(row, REFERENCE_KEYS);
-  for (const detail of imageDetailRows(row)) {
-    values.push(...detailReferences(detail));
-  }
-  return uniqueStrings(values);
 }
 
 function timestampFromRow(
@@ -390,7 +317,11 @@ async function selectByReference(
       continue;
     }
     const objectRow = row as Record<string, unknown>;
-    if (!referencesFromRow(objectRow).includes(reference)) {
+    const evidence = fullImageReferencesFromRow(objectRow);
+    if (evidence.evidenceIncomplete) {
+      return imageSelectionError(INCOMPLETE_REFERENCE_EVIDENCE_MESSAGE);
+    }
+    if (!evidence.references.includes(reference)) {
       continue;
     }
     const digest = digestFromImageRow(objectRow);
