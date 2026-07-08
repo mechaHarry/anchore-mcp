@@ -12,7 +12,7 @@ focus: v2 roadmap aligned with human/todo.md (image filtering, tag-first SBOM UX
 
 **Notable patterns:** Digest-centric v2 routes for SBOM/vuln/detail (`/v2/images/{digest}/sboms/...` plural `sboms`). List responses normalized for `items` vs `images`. Original implementation plan: stdio-only v1, mocked HTTP in CI, pagination deferred, timeout behavior documented as no retry.
 
-**Obvious gaps vs human goals:** List filtering limited to `fulltag` and `vulnerability_id`; no generic API-level string filter. SBOM tool requires `image_digest` only—no tag-first path. No HTTP/SSE MCP transport. Client: timeout, explicitly no retries on timeout. Tests are mock-heavy; limited contract drift detection.
+**Obvious gaps vs human goals:** List filtering was limited to public `fulltag` (v2 wire `full_tag`, v1 wire `fulltag`) and `vulnerability_id`; no generic API-level string filter. SBOM tool required `image_digest` only—no tag-first path. No HTTP/SSE MCP transport. Client: timeout, explicitly no retries on timeout. Tests were mock-heavy; limited contract drift detection.
 
 **Past learnings (`docs/solutions/`, research):** v2 SBOM path uses `sboms`; wrong segment can 400. Digest vs tag: paths expect `sha256:…`; policy check may allow tag query params—does not replace digest for SBOM routes. `/v2/openapi.json` is deployment source of truth. Remediation handoff schema is the stable downstream contract.
 

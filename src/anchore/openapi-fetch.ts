@@ -42,6 +42,7 @@ export async function fetchOpenApiDocument(
   const path = openApiPathForVersion(connection.apiVersion);
   const doc = await client.getJson<unknown>(path, {
     maxResponseBytes: MAX_OPENAPI_BYTES,
+    redirect: "manual",
   });
   cache.set(key, { doc, expiresAt: now + ttlMs });
   return doc;

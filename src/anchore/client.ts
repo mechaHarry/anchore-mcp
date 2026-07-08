@@ -33,6 +33,8 @@ export type GetJsonOptions = {
   timeoutMs?: number;
   /** If set, reject when the raw UTF-8 body exceeds this size (R15). */
   maxResponseBytes?: number;
+  /** Override fetch redirect handling for this request (OpenAPI uses `manual`). */
+  redirect?: NonNullable<RequestInit["redirect"]>;
 };
 
 function joinBaseAndPath(baseUrl: string, path: string): string {
@@ -101,6 +103,7 @@ export class AnchoreClient {
     const url = joinBaseAndPath(this.connection.baseUrl, path);
     const timeoutMs = init?.timeoutMs ?? this.defaultTimeoutMs;
     const maxResponseBytes = init?.maxResponseBytes;
+    const redirect = init?.redirect;
     const headers = buildAuthHeaders(this.connection);
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -108,11 +111,15 @@ export class AnchoreClient {
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
-        const res = await this.fetchImpl(url, {
+        const requestInit: RequestInit = {
           method: "GET",
           headers,
           signal: controller.signal,
-        });
+        };
+        if (redirect !== undefined) {
+          requestInit.redirect = redirect;
+        }
+        const res = await this.fetchImpl(url, requestInit);
 
         if (!res.ok) {
           const status = res.status;

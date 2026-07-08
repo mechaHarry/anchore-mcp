@@ -1,11 +1,28 @@
 /** Anchore REST path version segment (`/v1/...` vs `/v2/...`). */
 export type AnchoreApiVersion = "v1" | "v2";
 
+/** V1 and V2 use different query keys for an exact full image tag. */
+export function imageFullTagQueryKey(
+  version: AnchoreApiVersion,
+): "fulltag" | "full_tag" {
+  return version === "v1" ? "fulltag" : "full_tag";
+}
+
 export function imagesListPath(
   version: AnchoreApiVersion,
   query: URLSearchParams,
 ): string {
   const base = version === "v1" ? "/v1/images" : "/v2/images";
+  const qs = query.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
+/** Image tag summaries used for registry/repository selection. */
+export function imageTagSummariesPath(
+  version: AnchoreApiVersion,
+  query: URLSearchParams,
+): string {
+  const base = `/${version}/summaries/image-tags`;
   const qs = query.toString();
   return qs ? `${base}?${qs}` : base;
 }

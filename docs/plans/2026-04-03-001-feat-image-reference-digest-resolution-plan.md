@@ -22,7 +22,7 @@ Operators and agents think in **registry/repo:tag**; Anchore v2 per-image routes
 
 | Origin | Plan coverage |
 |--------|----------------|
-| R1–R3 Unified input, digest detection, `fulltag` preference, R10 for walks | Units 2–5 |
+| R1–R3 Unified input, digest detection, public `fulltag` / version-specific wire-key preference, R10 for walks | Units 2–5 |
 | R10 OpenAPI pagination, same-origin spec fetch, caps, enumeration incomplete | Unit 1–2, 3 |
 | R4–R6 Errors, disambiguation, resolved digest in context | Units 3–5 |
 | R7 SBOM + vulns MVP; detail + handoff + policy same release strongly preferred | Units 4–5 |
@@ -97,7 +97,7 @@ sequenceDiagram
   Tool->>Res: image_reference (no digest)
   Res->>OpenAPI: fetch spec if stale
   OpenAPI->>AE: GET /v2/openapi.json
-  Res->>List: GET /v2/images?fulltag=… (paginate per R10)
+  Res->>List: GET /v2/images?full_tag=… (paginate per R10)
   List->>AE: repeated GETs until done or cap
   Res-->>Tool: digest | 0 | N | enumeration_incomplete
   Tool->>AE: existing GET …/sboms/… or …/vuln/… with digest
@@ -139,7 +139,7 @@ sequenceDiagram
 
 **Goal:** Single module that given **`image_reference`** returns resolver outcome: canonical **digest** for downstream paths, **no match**, **disambiguation** list (deduped by digest per R5, slim fields, optional truncation flag), or **enumeration incomplete** per R10 caps. Includes **digest classifier** for R2.
 
-**Requirements:** R1–R6, R3 (`fulltag` first), R10 (delegate to Unit 1 for list walk).
+**Requirements:** R1–R6, R3 (public `fulltag` translated to v2 wire `full_tag` or retained as v1 wire `fulltag` first), R10 (delegate to Unit 1 for list walk).
 
 **Dependencies:** Unit 1.
 
@@ -147,12 +147,14 @@ sequenceDiagram
 - Add: `src/anchore/resolve-image-reference.ts` (or `src/tools/image-reference.ts` if preferred—prefer `anchore/` for reuse).
 - Add: `src/anchore/resolve-image-reference.test.ts`.
 
-**Approach:** Validate FQDN-ish reference (planning default); `URLSearchParams` / encoding per R4; call paginated list with `fulltag`; extract digest + tag fields from `items`/`images` rows using shared normalization (reuse or extend `summarizeImages` extraction logic in a small `image-records.ts` helper if needed).
+**Approach:** Validate FQDN-ish reference (planning default); `URLSearchParams` / encoding per R4; call the paginated list with `full_tag` for v2 or `fulltag` for v1; treat that server filter as narrowing only. Extract bounded local full-reference evidence from each `items`/`images` row and accept its digest only when the exact requested reference is proven. Ignore unrelated rows; return `enumeration_incomplete` when evidence bounds prevent a complete proof.
 
 **Patterns to follow:** `docs/solutions` digest vs tag; no tag in SBOM path.
 
 **Test scenarios:**
-- **Happy path:** One matching row after `fulltag` filter → digest.
+- **Happy path:** One matching row after the version-specific full-tag wire filter → digest.
+- **Trust boundary:** A digest row without exact local reference evidence does not match, even if the backend returned it for the filter.
+- **Evidence cap:** Overflow that could hide or follow an exact reference returns `enumeration_incomplete`, not `no_match`.
 - **Edge case:** Multiple rows same digest different tags → count as one (R5 dedupe).
 - **Error path:** Zero matches → structured `no_match` (not HTTP raw).
 - **Error path:** Multi digest disambiguation; truncated candidate list sets `disambiguation_truncated`.
@@ -175,7 +177,7 @@ sequenceDiagram
 - Modify: `src/tools/images.test.ts`
 - Modify: `src/mcp/server.ts` (Zod for new optional params if any)
 
-**Approach:** Replace single `getJson` with paginated helper from Unit 1 for default behavior; preserve `fulltag` / `vulnerability_id` behavior.
+**Approach:** Replace single `getJson` with paginated helper from Unit 1 for default behavior; preserve public `fulltag` (translated to v2 `full_tag`, retained as v1 `fulltag`) and `vulnerability_id` behavior.
 
 **Test scenarios:**
 - **Happy path:** Two-page list merged; summary line count correct.

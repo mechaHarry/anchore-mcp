@@ -5,8 +5,10 @@ repository only, so another agent or LLM can ask focused questions such as:
 
 ```text
 Use the anchore-mcp MCP server. Call anchore_policy_blocking_vulnerabilities
-with image_repository="psf/help-site". Return only the selected image and
-policy-blocking vulnerability count.
+with image_registry="containers.example.com" and
+image_repository="psf/help-site". Return only the selected image and
+policy-blocking vulnerability count. The tool selects the newest analyzed tag
+for that exact registry/repository pair.
 ```
 
 ## Shape
@@ -35,33 +37,88 @@ listing output free of credentials.
 
 ```toml
 [mcp_servers.anchore-mcp]
-command = "node"
+command = "/absolute/path/to/node"
 args = ["/absolute/path/to/your-repo/.codex/anchore-mcp-launcher.mjs"]
+cwd = "/absolute/path/to/your-repo"
 enabled = true
 startup_timeout_sec = 20
 tool_timeout_sec = 300
+enabled_tools = [
+  "anchore_connection_info",
+  "anchore_list_images",
+  "anchore_image_vulnerabilities",
+  "anchore_image_sbom",
+  "anchore_image_policy_check",
+  "anchore_policy_blocking_vulnerabilities",
+  "anchore_image_detail",
+  "anchore_remediation_handoff",
+]
+
+[mcp_servers.anchore-mcp.tools.anchore_connection_info]
+approval_mode = "approve"
+
+[mcp_servers.anchore-mcp.tools.anchore_list_images]
+approval_mode = "approve"
+
+[mcp_servers.anchore-mcp.tools.anchore_image_vulnerabilities]
+approval_mode = "approve"
+
+[mcp_servers.anchore-mcp.tools.anchore_image_sbom]
+approval_mode = "approve"
+
+[mcp_servers.anchore-mcp.tools.anchore_image_policy_check]
+approval_mode = "approve"
+
+[mcp_servers.anchore-mcp.tools.anchore_policy_blocking_vulnerabilities]
+approval_mode = "approve"
+
+[mcp_servers.anchore-mcp.tools.anchore_image_detail]
+approval_mode = "approve"
+
+[mcp_servers.anchore-mcp.tools.anchore_remediation_handoff]
+approval_mode = "approve"
 ```
+
+`command` must be an executable Node binary or launcher; never set it to
+`dist/index.js`. `command = "node"` works only when the MCP child process's
+`PATH` contains Node, so an absolute Node path is more reliable. Keep `args`
+and `cwd` aligned with the current clone rather than an old or moved checkout.
+Keep the alias `anchore-mcp` identical in every table. The exact `enabled_tools`
+allowlist is fail closed: a future tool remains disabled until it is audited as
+read-only and consciously added to both the allowlist and an approval stanza.
 
 ## `.codex/anchore-mcp.env.json`
 
-Use mode `0600` on this file.
+Set a restrictive umask **before** creating the directory or file. In the same
+shell, open the new file with your editor:
+
+```bash
+umask 077
+mkdir -p .codex
+${EDITOR:-vi} .codex/anchore-mcp.env.json
+```
+
+Paste one complete JSON object. `ANCHORE_URL` and `ANCHORE_TOKEN` are required;
+delete any optional keys you do not use:
 
 ```json
 {
   "ANCHORE_URL": "https://anchore.example.com",
   "ANCHORE_TOKEN": "<anchore-api-token>",
-  "ANCHORE_ACCOUNT": "example-account"
+  "ANCHORE_ACCOUNT": "<optional-account>",
+  "ANCHORE_API_VERSION": "v2",
+  "ANCHORE_HTTP_MAX_RETRIES": "2",
+  "ANCHORE_HTTP_RETRY_BASE_MS": "300",
+  "ANCHORE_HTTP_RETRY_MAX_MS": "8000"
 }
 ```
 
-Optional:
+After saving, enforce mode `0600` defensively and verify it on macOS. The final
+command prints `600`:
 
-```json
-{
-  "ANCHORE_API_VERSION": "v2",
-  "ANCHORE_HTTP_TIMEOUT_MS": "30000",
-  "ANCHORE_HTTP_MAX_RETRIES": "2"
-}
+```bash
+chmod 600 .codex/anchore-mcp.env.json
+stat -f '%Lp' .codex/anchore-mcp.env.json
 ```
 
 ## `.codex/anchore-mcp-launcher.mjs`
@@ -107,14 +164,36 @@ pnpm run build
 ```
 
 `serverPath` in the launcher must point at the built `dist/index.js`.
+Run `pnpm run build` after source changes so that file is current.
+The required secret keys are `ANCHORE_URL` and `ANCHORE_TOKEN`.
+`ANCHORE_ACCOUNT` and `ANCHORE_API_VERSION` are optional; use `v2` unless a
+legacy deployment requires `v1`.
+
+Validate the executable, launcher, and server paths without reading the secret
+file:
+
+```bash
+test -d /absolute/path/to/your-repo
+test -x /absolute/path/to/node
+test -f /absolute/path/to/your-repo/.codex/anchore-mcp-launcher.mjs
+test -f /absolute/path/to/anchore-mcp/dist/index.js
+```
 
 ## Verify Codex Sees It
 
 From the repository where `.codex/config.toml` lives:
 
+Inspect only non-secret fields:
+
 ```bash
-codex mcp list --json
+codex mcp get anchore-mcp --json | jq '{name, enabled, disabled_reason, transport: {type: .transport.type, command: .transport.command, args: .transport.args, cwd: .transport.cwd}, enabled_tools, disabled_tools, startup_timeout_sec, tool_timeout_sec}'
 ```
+
+This filtered command cannot verify per-tool `approval_mode`; Codex 0.142.5
+does not expose it in `mcp get` JSON. Inspect the specific tool stanza in your
+trusted TOML directly, without printing adjacent environment configuration.
+Never print or paste raw MCP configuration or environment fields; they may
+contain tokens.
 
 Expected shape:
 
@@ -122,12 +201,26 @@ Expected shape:
 {
   "name": "anchore-mcp",
   "enabled": true,
+  "disabled_reason": null,
   "transport": {
     "type": "stdio",
-    "command": "node",
+    "command": "/absolute/path/to/node",
     "args": ["/absolute/path/to/your-repo/.codex/anchore-mcp-launcher.mjs"],
-    "env": null
-  }
+    "cwd": "/absolute/path/to/your-repo"
+  },
+  "enabled_tools": [
+    "anchore_connection_info",
+    "anchore_list_images",
+    "anchore_image_vulnerabilities",
+    "anchore_image_sbom",
+    "anchore_image_policy_check",
+    "anchore_policy_blocking_vulnerabilities",
+    "anchore_image_detail",
+    "anchore_remediation_handoff"
+  ],
+  "disabled_tools": null,
+  "startup_timeout_sec": 20.0,
+  "tool_timeout_sec": 300.0
 }
 ```
 
@@ -141,8 +234,9 @@ directory:
 
 ```text
 Use the anchore-mcp MCP server. Call anchore_policy_blocking_vulnerabilities
-with image_repository="psf/help-site". Do not inspect or print env/config
-secrets. Return compact JSON with policyRemediationStatus, selectedImage, and
+with image_registry="containers.example.com" and
+image_repository="psf/help-site". Do not inspect or print env/config secrets.
+Return compact JSON with policyRemediationStatus, selectedImage, and
 blockingVulnerabilityCount.
 ```
 

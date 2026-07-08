@@ -1,4 +1,5 @@
 import type { ResolvedAnchoreConnection } from "../config/connection.js";
+import { imageFullTagQueryKey } from "./api-paths.js";
 import { createAnchoreClient, type AnchoreClientOptions } from "./client.js";
 import {
   DEFAULT_RESOLUTION_LIST_CAPS,
@@ -8,10 +9,15 @@ import {
 import {
   digestFromImageRow,
   extractImageListRows,
+  fullImageReferencesFromRow,
   validateFullImageReference,
 } from "./image-records.js";
 
 const MAX_DISAMBIGUATION_CANDIDATES = 50;
+const MAX_TAG_HINTS_PER_DIGEST = 8;
+const MAX_TOTAL_DISAMBIGUATION_TAG_HINTS = 64;
+const EVIDENCE_INCOMPLETE_REASON =
+  "Image reference evidence exceeded safety limits.";
 
 export type ResolveCandidate = {
   digest: string;
@@ -30,28 +36,8 @@ export type ResolveImageReferenceResult =
   | { kind: "enumeration_incomplete"; reason: string }
   | { kind: "upstream_error"; message: string };
 
-function tagHintsFromRow(row: unknown): string[] | undefined {
-  if (row === null || typeof row !== "object") {
-    return undefined;
-  }
-  const o = row as Record<string, unknown>;
-  const tags: string[] = [];
-  const fulltag = o.fulltag ?? o.full_tag ?? o.tag;
-  if (typeof fulltag === "string" && fulltag.trim().length > 0) {
-    tags.push(fulltag.trim());
-  }
-  if (Array.isArray(o.tags)) {
-    for (const t of o.tags) {
-      if (typeof t === "string" && t.trim().length > 0) {
-        tags.push(t.trim());
-      }
-    }
-  }
-  return tags.length > 0 ? tags : undefined;
-}
-
 /**
- * Resolve a full image reference to a single digest using GET /images?fulltag=… (paginated).
+ * Resolve a full image reference using the API version's full-tag query key (paginated).
  */
 export async function resolveImageReference(
   connection: ResolvedAnchoreConnection,
@@ -65,8 +51,9 @@ export async function resolveImageReference(
     return { kind: "upstream_error", message: validated.message };
   }
 
+  const requestedReference = imageReference.trim();
   const params = new URLSearchParams();
-  params.set("fulltag", imageReference.trim());
+  params.set(imageFullTagQueryKey(connection.apiVersion), requestedReference);
 
   const { listCaps: capsOverride, ...clientOptions } = options ?? {};
   const client = createAnchoreClient(connection, clientOptions);
@@ -89,11 +76,13 @@ export async function resolveImageReference(
   }
 
   if (enumerationIncomplete) {
+    const queryKey = imageFullTagQueryKey(connection.apiVersion);
+    const baseReason =
+      incompleteReason ??
+      `Image list enumeration incomplete after ${pagesFetched} page(s).`;
     return {
       kind: "enumeration_incomplete",
-      reason:
-        incompleteReason ??
-        `Image list enumeration incomplete after ${pagesFetched} page(s). Narrow fulltag or raise caps.`,
+      reason: `${baseReason} Narrow ${queryKey} or raise caps.`,
     };
   }
 
@@ -101,19 +90,37 @@ export async function resolveImageReference(
   const byDigest = new Map<string, ResolveCandidate>();
 
   for (const row of rows) {
+    const evidence = fullImageReferencesFromRow(row);
+    if (evidence.evidenceIncomplete) {
+      return {
+        kind: "enumeration_incomplete",
+        reason: EVIDENCE_INCOMPLETE_REASON,
+      };
+    }
+    const references = evidence.references;
+    if (!references.includes(requestedReference)) {
+      continue;
+    }
     const digest = digestFromImageRow(row);
     if (digest === undefined) {
       continue;
     }
     const existing = byDigest.get(digest);
-    const hints = tagHintsFromRow(row);
+    const hints = [
+      requestedReference,
+      ...references.filter((reference) => reference !== requestedReference),
+    ].slice(0, MAX_TAG_HINTS_PER_DIGEST);
     if (existing === undefined) {
-      byDigest.set(digest, { digest, ...(hints !== undefined ? { tags: hints } : {}) });
-    } else if (hints !== undefined) {
-      const mergedTags = new Set([...(existing.tags ?? []), ...hints]);
+      byDigest.set(digest, { digest, ...(hints.length > 0 ? { tags: hints } : {}) });
+    } else if (hints.length > 0) {
+      const mergedTags = new Set([
+        requestedReference,
+        ...(existing.tags ?? []).filter((tag) => tag !== requestedReference),
+        ...hints.filter((tag) => tag !== requestedReference),
+      ]);
       byDigest.set(digest, {
         digest,
-        tags: [...mergedTags],
+        tags: [...mergedTags].slice(0, MAX_TAG_HINTS_PER_DIGEST),
       });
     }
   }
@@ -133,6 +140,25 @@ export async function resolveImageReference(
     candidates = sorted.slice(0, MAX_DISAMBIGUATION_CANDIDATES);
     disambiguation_truncated = true;
   }
+
+  let remainingOptionalTagHints =
+    MAX_TOTAL_DISAMBIGUATION_TAG_HINTS - candidates.length;
+  candidates = candidates.map((candidate) => {
+    const optionalTags = (candidate.tags ?? [])
+      .filter((tag) => tag !== requestedReference)
+      .slice(
+        0,
+        Math.min(
+          MAX_TAG_HINTS_PER_DIGEST - 1,
+          remainingOptionalTagHints,
+        ),
+      );
+    remainingOptionalTagHints -= optionalTags.length;
+    return {
+      digest: candidate.digest,
+      tags: [requestedReference, ...optionalTags],
+    };
+  });
 
   return {
     kind: "disambiguate",
