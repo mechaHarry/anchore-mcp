@@ -188,8 +188,7 @@ describe("selectImageForPolicyBlockingReport", () => {
           analyzed_at: "2026-04-03T00:00:00Z",
           imageDetails: [
             {
-              registry,
-              repository: "team/wrong",
+              imageRegistry: registry,
               imageRepository: repository,
               image_tag: "registry.example.com/team/app:2.0",
             },
@@ -225,6 +224,37 @@ describe("selectImageForPolicyBlockingReport", () => {
         analysisTimestamp: "2026-04-04T00:00:00Z",
       },
     });
+  });
+
+  it("does not synthesize a match from conflicting registry and repository aliases", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          image_digest: "sha256:synthetic-only",
+          analyzed_at: "2026-04-05T00:00:00Z",
+          image_detail: [
+            {
+              registry: "registry.example.com",
+              imageRegistry: "other.example.com",
+              repository: "other/team",
+              imageRepository: "team/app",
+              tag: "5.0",
+            },
+          ],
+        },
+      ]),
+    );
+
+    const result = await selectImageForPolicyBlockingReport(
+      {
+        image_registry: "registry.example.com",
+        image_repository: "team/app",
+      },
+      testConn(),
+      { fetch: fetchMock },
+    );
+
+    expect(result).toMatchObject({ ok: false, status: "image_selection_error" });
   });
 
   it("matches repository metadata from nested v2 image_detail rows", async () => {
@@ -383,9 +413,10 @@ describe("selectImageForPolicyBlockingReport", () => {
 
   it("requires exactly one locator", async () => {
     const connection = testConn();
+    const fetchMock = vi.fn();
 
     await expect(
-      selectImageForPolicyBlockingReport({}, connection),
+      selectImageForPolicyBlockingReport({}, connection, { fetch: fetchMock }),
     ).resolves.toMatchObject({
       ok: false,
       status: "image_selection_error",
@@ -397,6 +428,7 @@ describe("selectImageForPolicyBlockingReport", () => {
           image_reference: "docker.io/library/nginx:latest",
         },
         connection,
+        { fetch: fetchMock },
       ),
     ).resolves.toMatchObject({
       ok: false,
@@ -410,28 +442,48 @@ describe("selectImageForPolicyBlockingReport", () => {
           image_repository: "team/app",
         },
         connection,
+        { fetch: fetchMock },
       ),
     ).resolves.toMatchObject({
       ok: false,
       status: "image_selection_error",
     });
+    await expect(
+      selectImageForPolicyBlockingReport(
+        {
+          image_reference: "docker.io/library/nginx:latest",
+          image_registry: "registry.example.com",
+          image_repository: "team/app",
+        },
+        connection,
+        { fetch: fetchMock },
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      status: "image_selection_error",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("rejects incomplete registry and repository component pairs", async () => {
     const connection = testConn();
+    const fetchMock = vi.fn();
 
     await expect(
       selectImageForPolicyBlockingReport(
         { image_registry: "registry.example.com" },
         connection,
+        { fetch: fetchMock },
       ),
     ).resolves.toMatchObject({ ok: false, status: "image_selection_error" });
     await expect(
       selectImageForPolicyBlockingReport(
         { image_repository: "team/app" },
         connection,
+        { fetch: fetchMock },
       ),
     ).resolves.toMatchObject({ ok: false, status: "image_selection_error" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it.each([

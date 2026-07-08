@@ -45,13 +45,6 @@ const REFERENCE_KEYS = [
   "imageTag",
 ] as const;
 
-const REPOSITORY_KEYS = [
-  "repository",
-  "repo",
-  "image_repository",
-  "imageRepository",
-] as const;
-const REGISTRY_KEYS = ["registry", "image_registry", "imageRegistry"] as const;
 const IMAGE_DETAIL_KEYS = [
   "image_detail",
   "imageDetail",
@@ -229,11 +222,17 @@ function locatorFromReference(reference: string): RepositoryLocator | undefined 
 }
 
 function repositoryLocatorsFromObject(object: Record<string, unknown>): RepositoryLocator[] {
-  const registries = stringFields(object, REGISTRY_KEYS);
-  const repositories = stringFields(object, REPOSITORY_KEYS);
   const locators: RepositoryLocator[] = [];
-  for (const registry of registries) {
-    for (const repository of repositories) {
+  const componentKeyPairs = [
+    ["registry", "repo"],
+    ["registry", "repository"],
+    ["image_registry", "image_repository"],
+    ["imageRegistry", "imageRepository"],
+  ] as const;
+  for (const [registryKey, repositoryKey] of componentKeyPairs) {
+    const registry = stringField(object, registryKey);
+    const repository = stringField(object, repositoryKey);
+    if (registry !== undefined && repository !== undefined) {
       locators.push({ registry, repository });
     }
   }
