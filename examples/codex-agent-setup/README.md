@@ -43,9 +43,39 @@ cwd = "/absolute/path/to/your-repo"
 enabled = true
 startup_timeout_sec = 20
 tool_timeout_sec = 300
+enabled_tools = [
+  "anchore_connection_info",
+  "anchore_list_images",
+  "anchore_image_vulnerabilities",
+  "anchore_image_sbom",
+  "anchore_image_policy_check",
+  "anchore_policy_blocking_vulnerabilities",
+  "anchore_image_detail",
+  "anchore_remediation_handoff",
+]
 
-# Optional, recommended for noninteractive use of this read-only tool.
+[mcp_servers.anchore-mcp.tools.anchore_connection_info]
+approval_mode = "approve"
+
+[mcp_servers.anchore-mcp.tools.anchore_list_images]
+approval_mode = "approve"
+
+[mcp_servers.anchore-mcp.tools.anchore_image_vulnerabilities]
+approval_mode = "approve"
+
+[mcp_servers.anchore-mcp.tools.anchore_image_sbom]
+approval_mode = "approve"
+
+[mcp_servers.anchore-mcp.tools.anchore_image_policy_check]
+approval_mode = "approve"
+
 [mcp_servers.anchore-mcp.tools.anchore_policy_blocking_vulnerabilities]
+approval_mode = "approve"
+
+[mcp_servers.anchore-mcp.tools.anchore_image_detail]
+approval_mode = "approve"
+
+[mcp_servers.anchore-mcp.tools.anchore_remediation_handoff]
 approval_mode = "approve"
 ```
 
@@ -53,10 +83,17 @@ approval_mode = "approve"
 `dist/index.js`. `command = "node"` works only when the MCP child process's
 `PATH` contains Node, so an absolute Node path is more reliable. Keep `args`
 and `cwd` aligned with the current clone rather than an old or moved checkout.
+Keep the alias `anchore-mcp` identical in every table. The exact `enabled_tools`
+allowlist is fail closed: a future tool remains disabled until it is audited as
+read-only and consciously added to both the allowlist and an approval stanza.
 
 ## `.codex/anchore-mcp.env.json`
 
 Use mode `0600` on this file.
+
+```bash
+chmod 600 .codex/anchore-mcp.env.json
+```
 
 ```json
 {
@@ -71,8 +108,9 @@ Optional:
 ```json
 {
   "ANCHORE_API_VERSION": "v2",
-  "ANCHORE_HTTP_TIMEOUT_MS": "30000",
-  "ANCHORE_HTTP_MAX_RETRIES": "2"
+  "ANCHORE_HTTP_MAX_RETRIES": "2",
+  "ANCHORE_HTTP_RETRY_BASE_MS": "300",
+  "ANCHORE_HTTP_RETRY_MAX_MS": "8000"
 }
 ```
 
@@ -120,6 +158,9 @@ pnpm run build
 
 `serverPath` in the launcher must point at the built `dist/index.js`.
 Run `pnpm run build` after source changes so that file is current.
+The required secret keys are `ANCHORE_URL` and `ANCHORE_TOKEN`.
+`ANCHORE_ACCOUNT` and `ANCHORE_API_VERSION` are optional; use `v2` unless a
+legacy deployment requires `v1`.
 
 Validate the executable, launcher, and server paths without reading the secret
 file:
@@ -159,7 +200,16 @@ Expected shape:
     "args": ["/absolute/path/to/your-repo/.codex/anchore-mcp-launcher.mjs"],
     "cwd": "/absolute/path/to/your-repo"
   },
-  "enabled_tools": null,
+  "enabled_tools": [
+    "anchore_connection_info",
+    "anchore_list_images",
+    "anchore_image_vulnerabilities",
+    "anchore_image_sbom",
+    "anchore_image_policy_check",
+    "anchore_policy_blocking_vulnerabilities",
+    "anchore_image_detail",
+    "anchore_remediation_handoff"
+  ],
   "disabled_tools": null,
   "startup_timeout_sec": 20.0,
   "tool_timeout_sec": 300.0

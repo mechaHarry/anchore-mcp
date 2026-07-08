@@ -43,11 +43,36 @@ Each MCP process talks to **one** Anchore deployment. Set environment variables 
 
 Need **multiple** Anchore deployments? Add **multiple** MCP server entries in your IDE, each with its own `command`/`args` and **different** `env` (different `ANCHORE_URL` and token).
 
-For a repo-local Codex setup that other agents can reuse without committing secrets, see [examples/codex-agent-setup](examples/codex-agent-setup/README.md).
+## Minimal Codex setup (all read-only tools, no prompts)
 
-### Codex stdio configuration
+This is a local **stdio** MCP server. The eight tools enabled below only perform Anchore `GET` requests. The exact allowlist makes the setup fail closed: a future tool is disabled until an operator audits it, adds it to `enabled_tools`, and adds an explicit approval stanza. Keep the alias `anchore-mcp` identical in every TOML table; if you rename it, rename every occurrence.
 
-Codex must launch this server as a local **stdio** process. Use an executable Node binary as `command`, and pass this clone's built server as an argument:
+### 1. Build
+
+From the current `anchore-mcp` clone:
+
+```bash
+pnpm install
+pnpm run check
+```
+
+`pnpm run check` rebuilds `dist/index.js` and runs lint, typecheck, and tests.
+
+### 2. Find and verify absolute paths
+
+Use an executable Node path, not `dist/index.js`, as `command`. A bare `node` depends on the MCP child's `PATH` and is less reliable.
+
+```bash
+command -v node
+test -x /absolute/path/to/node
+test -f /absolute/path/to/anchore-mcp/dist/index.js
+```
+
+The Node path, `dist/index.js` path, and `cwd` must be absolute and must reference the current clone rather than an old checkout.
+
+### 3. Add config
+
+Add this to the other Codex setup's trusted `config.toml`, replacing the absolute path placeholders:
 
 ```toml
 [mcp_servers.anchore-mcp]
@@ -57,30 +82,76 @@ cwd = "/absolute/path/to/anchore-mcp"
 enabled = true
 startup_timeout_sec = 20
 tool_timeout_sec = 300
+enabled_tools = [
+  "anchore_connection_info",
+  "anchore_list_images",
+  "anchore_image_vulnerabilities",
+  "anchore_image_sbom",
+  "anchore_image_policy_check",
+  "anchore_policy_blocking_vulnerabilities",
+  "anchore_image_detail",
+  "anchore_remediation_handoff",
+]
 
-# Optional, recommended for noninteractive use of this read-only tool.
+[mcp_servers.anchore-mcp.tools.anchore_connection_info]
+approval_mode = "approve"
+
+[mcp_servers.anchore-mcp.tools.anchore_list_images]
+approval_mode = "approve"
+
+[mcp_servers.anchore-mcp.tools.anchore_image_vulnerabilities]
+approval_mode = "approve"
+
+[mcp_servers.anchore-mcp.tools.anchore_image_sbom]
+approval_mode = "approve"
+
+[mcp_servers.anchore-mcp.tools.anchore_image_policy_check]
+approval_mode = "approve"
+
 [mcp_servers.anchore-mcp.tools.anchore_policy_blocking_vulnerabilities]
+approval_mode = "approve"
+
+[mcp_servers.anchore-mcp.tools.anchore_image_detail]
+approval_mode = "approve"
+
+[mcp_servers.anchore-mcp.tools.anchore_remediation_handoff]
 approval_mode = "approve"
 ```
 
-Do **not** set `command` to `dist/index.js`: `command` must be an executable Node binary or launcher. `command = "node"` works only when the MCP child process's `PATH` contains Node; an absolute Node path is more reliable. `args` and `cwd` must point to the current clone, not an old or moved checkout. Run `pnpm run build` after source changes so `dist/index.js` is current.
+Do not set `command` to `dist/index.js`. The explicit `enabled_tools` list is intentional; consciously update both the allowlist and approval stanzas only after auditing a new tool as read-only.
 
-Keep credentials out of committed TOML. The [repo-local Codex setup example](examples/codex-agent-setup/README.md) shows a host-managed, gitignored secret-file pattern.
+### 4. Provide secrets safely
 
-Before restarting Codex, verify paths without reading credentials:
+Real calls require `ANCHORE_URL` and `ANCHORE_TOKEN`. `ANCHORE_ACCOUNT` is optional; `ANCHORE_API_VERSION` is optional and defaults to `v2` (recommended for Enterprise 5+). Optional retry tuning is limited to `ANCHORE_HTTP_MAX_RETRIES`, `ANCHORE_HTTP_RETRY_BASE_MS`, and `ANCHORE_HTTP_RETRY_MAX_MS`.
+
+Do not commit credentials or paste them into diagnostics. Prefer the [gitignored launcher plus mode-`0600` environment-file pattern](examples/codex-agent-setup/README.md) instead of inline secret TOML. When using that pattern, change only `args` to the absolute launcher path; the launcher starts the same absolute `dist/index.js` path.
+
+### 5. Verify non-secret transport
+
+From the directory whose Codex config contains this server:
 
 ```bash
-test -x /absolute/path/to/node
-test -f /absolute/path/to/anchore-mcp/dist/index.js
 codex mcp get anchore-mcp --json | jq '{name, enabled, disabled_reason, transport: {type: .transport.type, command: .transport.command, args: .transport.args, cwd: .transport.cwd}, enabled_tools, disabled_tools, startup_timeout_sec, tool_timeout_sec}'
 ```
 
-This filtered command cannot verify per-tool `approval_mode`; Codex 0.142.5 does not expose it in `mcp get` JSON. Inspect the specific tool stanza in your trusted TOML directly, without printing adjacent environment configuration. Never print or paste raw MCP configuration or environment fields; they may contain tokens. A prompt for the repository-smart lookup is:
+Confirm the filtered output shows `enabled: true`, the intended absolute paths, and the exact eight-item `enabled_tools` list. Do not print the raw result or environment fields. `codex mcp get` does not expose per-tool `approval_mode`; inspect the eight tool stanzas in trusted TOML without printing adjacent secret configuration.
+
+### 6. Smoke test
+
+Start a fresh Codex session in the configured, trusted directory and try:
+
+```text
+Use the anchore-mcp MCP server. Call anchore_connection_info. Return only
+whether the connection is configured, its API version, and its non-secret URL.
+Do not inspect or print MCP configuration or environment values.
+```
+
+Then verify repository-smart selection:
 
 ```text
 Use the anchore-mcp MCP server. Call anchore_policy_blocking_vulnerabilities
 with image_registry="registry.example.com" and image_repository="team/app".
-Return the selected image and compact policy-blocking vulnerability summary.
+Return the selected image and a compact policy-blocking vulnerability summary.
 Do not inspect or print MCP configuration or environment values.
 ```
 
