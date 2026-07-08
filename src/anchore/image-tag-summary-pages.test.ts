@@ -104,4 +104,40 @@ describe("fetchAllImageTagSummaryPages", () => {
     expect(out.pagesFetched).toBe(0);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("fails closed when total_rows changes between pages", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response([{ image_digest: "sha256:a" }], 3))
+      .mockResolvedValueOnce(response([{ image_digest: "sha256:b" }], 2));
+    const client = createAnchoreClient(connection, { fetch: fetchMock });
+
+    const out = await fetchAllImageTagSummaryPages(
+      client,
+      connection,
+      new URLSearchParams({ limit: "1" }),
+      { maxPages: 3, maxItems: 3 },
+    );
+
+    expect(out.enumerationIncomplete).toBe(true);
+    expect(out.pagesFetched).toBe(2);
+    expect(out.incompleteReason).toContain("inconsistent");
+  });
+
+  it("fails closed when total_rows is zero but items are returned", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      response([{ image_digest: "sha256:unexpected" }], 0),
+    );
+    const client = createAnchoreClient(connection, { fetch: fetchMock });
+
+    const out = await fetchAllImageTagSummaryPages(
+      client,
+      connection,
+      new URLSearchParams(),
+      { maxPages: 3, maxItems: 3 },
+    );
+
+    expect(out.enumerationIncomplete).toBe(true);
+    expect(out.incompleteReason).toContain("inconsistent");
+  });
 });

@@ -62,11 +62,14 @@ describe("mergeListImagesQueryParams", () => {
   });
 
   it("maps explicit fulltag input to full_tag and prefers it over list_query", () => {
-    const allow = new Set(["full_tag"]);
+    const allow = new Set(["full_tag", "fulltag"]);
     const { params } = mergeListImagesQueryParams(
       {
         fulltag: "docker.io/a:b",
-        list_query: { full_tag: "docker.io/c:d" },
+        list_query: {
+          full_tag: "docker.io/c:d",
+          fulltag: "docker.io/legacy:e",
+        },
       },
       allow,
     );

@@ -76,15 +76,17 @@ export function validateFullImageReference(ref: string): { ok: true } | { ok: fa
   if (/[\x00-\x1f\x7f]/.test(t)) {
     return { ok: false, message: "image_reference contains invalid control characters." };
   }
-  if (!t.includes(":")) {
-    return { ok: false, message: "image_reference must include a tag (registry/repo:tag)." };
-  }
-  if (!t.includes("/")) {
+  const lastSlash = t.lastIndexOf("/");
+  if (lastSlash < 0) {
     return {
       ok: false,
       message:
         "image_reference must be a fully qualified image reference (e.g. docker.io/library/nginx:latest).",
     };
+  }
+  const lastColon = t.lastIndexOf(":");
+  if (lastColon <= lastSlash || lastColon === t.length - 1) {
+    return { ok: false, message: "image_reference must include a tag (registry/repo:tag)." };
   }
   return { ok: true };
 }

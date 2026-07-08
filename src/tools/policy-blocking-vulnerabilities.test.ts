@@ -487,6 +487,40 @@ describe("runPolicyBlockingVulnerabilities", () => {
     }
   });
 
+  it("does not expose raw parseable timestamp text in selector errors", async () => {
+    const marker = "CUSTOMER_SECRET_MARKER";
+    const rawTimestamp = `Thu, 02 Apr 2026 00:00:00 GMT (${marker})`;
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          image_digest: "sha256:a",
+          full_tag: "registry.example.com/team/app:1",
+          analyzed_at: rawTimestamp,
+        },
+        {
+          image_digest: "sha256:b",
+          full_tag: "registry.example.com/team/app:2",
+          analyzed_at: rawTimestamp,
+        },
+      ]),
+    );
+
+    const result = await runPolicyBlockingVulnerabilities(
+      {
+        image_registry: "registry.example.com",
+        image_repository: "team/app",
+      },
+      { connection: testConnection(), fetch: fetchMock },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(textPayload(result)).toContain("2026-04-02T00:00:00.000Z");
+    expect(textPayload(result)).not.toContain(marker);
+    for (const call of vi.mocked(safeLog.logStderrLine).mock.calls) {
+      expect(call[0]).not.toContain(marker);
+    }
+  });
+
   it.each([
     {
       args: { image_reference: "docker.io/library/nginx:latest" },

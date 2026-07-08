@@ -50,6 +50,18 @@ function itemsFromBody(data: unknown): unknown[] {
   return Array.isArray(items) ? items : [];
 }
 
+function inconsistentPagination(
+  rows: unknown[],
+  pagesFetched: number,
+): FetchAllImageTagSummaryPagesResult {
+  return {
+    rows,
+    pagesFetched,
+    enumerationIncomplete: true,
+    incompleteReason: "Image tag summary pagination metadata was inconsistent.",
+  };
+}
+
 /**
  * Walk `/summaries/image-tags` using its documented page/limit contract.
  * Missing `total_rows` is handled conservatively by continuing full pages until
@@ -76,6 +88,7 @@ export async function fetchAllImageTagSummaryPages(
   );
   const rows: unknown[] = [];
   let pagesFetched = 0;
+  let expectedTotalRows: number | undefined;
 
   while (pagesFetched < pageCap) {
     const params = new URLSearchParams(baseParams);
@@ -87,11 +100,25 @@ export async function fetchAllImageTagSummaryPages(
     pagesFetched += 1;
 
     const pageRows = itemsFromBody(data);
-    const totalRows = totalRowsFromBody(data);
+    const reportedTotalRows = totalRowsFromBody(data);
+    if (reportedTotalRows !== undefined) {
+      if (expectedTotalRows === undefined) {
+        expectedTotalRows = reportedTotalRows;
+      } else if (reportedTotalRows !== expectedTotalRows) {
+        return inconsistentPagination(rows, pagesFetched);
+      }
+    }
+    if (
+      expectedTotalRows !== undefined &&
+      rows.length + pageRows.length > expectedTotalRows
+    ) {
+      return inconsistentPagination(rows, pagesFetched);
+    }
     const remaining = Math.max(0, itemCap - rows.length);
     rows.push(...pageRows.slice(0, remaining));
 
-    const knownRowsRemain = totalRows !== undefined && rows.length < totalRows;
+    const knownRowsRemain =
+      expectedTotalRows !== undefined && rows.length < expectedTotalRows;
     const pageWasTruncated = pageRows.length > remaining;
     if (pageWasTruncated || (rows.length >= itemCap && knownRowsRemain)) {
       return {
@@ -102,7 +129,7 @@ export async function fetchAllImageTagSummaryPages(
       };
     }
 
-    if (totalRows !== undefined) {
+    if (expectedTotalRows !== undefined) {
       if (!knownRowsRemain) {
         return { rows, pagesFetched, enumerationIncomplete: false };
       }

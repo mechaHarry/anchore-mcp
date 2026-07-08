@@ -125,4 +125,16 @@ describe("resolveImageReference", () => {
     expect(out.kind).toBe("upstream_error");
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("rejects a port-only colon without fetching", async () => {
+    const fetchMock = vi.fn();
+    const out = await resolveImageReference(
+      testConn(),
+      "registry.example.com:5000/team/app",
+      { fetch: fetchMock },
+    );
+
+    expect(out).toMatchObject({ kind: "upstream_error" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

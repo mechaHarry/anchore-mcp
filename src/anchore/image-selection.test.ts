@@ -61,12 +61,28 @@ describe("selectImageForPolicyBlockingReport", () => {
         digest: "sha256:new",
         reference: requested,
         repository: "docker.io/library/nginx",
-        analysisTimestamp: "2026-04-02T00:00:00Z",
+        analysisTimestamp: "2026-04-02T00:00:00.000Z",
       },
     });
     expect(fetchMock.mock.calls[0][0]).toContain("full_tag=");
     expect(fetchMock.mock.calls[0][0]).not.toContain("fulltag=");
     expect(fetchMock.mock.calls[0][0]).toContain(encodeURIComponent(requested));
+  });
+
+  it("rejects a port-only colon reference without fetching", async () => {
+    const fetchMock = vi.fn();
+    const result = await selectImageForPolicyBlockingReport(
+      { image_reference: "registry.example.com:5000/team/app" },
+      testConn(),
+      { fetch: fetchMock },
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: "image_selection_error",
+      messageSource: "selector",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("ignores rows with the same repository but a different tag for exact reference selection", async () => {
@@ -98,7 +114,7 @@ describe("selectImageForPolicyBlockingReport", () => {
         digest: "sha256:requested",
         reference: requested,
         repository: "docker.io/library/nginx",
-        analysisTimestamp: "2026-04-02T00:00:00Z",
+        analysisTimestamp: "2026-04-02T00:00:00.000Z",
       },
     });
   });
@@ -128,7 +144,7 @@ describe("selectImageForPolicyBlockingReport", () => {
         digest: "sha256:matched-later-field",
         reference: requested,
         repository: "docker.io/library/nginx",
-        analysisTimestamp: "2026-04-02T00:00:00Z",
+        analysisTimestamp: "2026-04-02T00:00:00.000Z",
       },
     });
   });
@@ -339,7 +355,7 @@ describe("selectImageForPolicyBlockingReport", () => {
         digest: "sha256:matched-derived-reference",
         reference: "registry.example.com/team/app:3.0",
         repository: "registry.example.com/team/app",
-        analysisTimestamp: "2026-04-04T00:00:00Z",
+        analysisTimestamp: "2026-04-04T00:00:00.000Z",
       },
     });
   });
@@ -421,7 +437,7 @@ describe("selectImageForPolicyBlockingReport", () => {
         digest: "sha256:new",
         reference: "containers.example.com/psf/help-site:4",
         repository: "containers.example.com/psf/help-site",
-        analysisTimestamp: "2026-04-24T00:00:00Z",
+        analysisTimestamp: "2026-04-24T00:00:00.000Z",
       },
     });
   });
@@ -457,7 +473,7 @@ describe("selectImageForPolicyBlockingReport", () => {
         digest: "sha256:nested-reference",
         reference: requested,
         repository: "containers.example.com/psf/help-site",
-        analysisTimestamp: "2026-04-24T00:00:00Z",
+        analysisTimestamp: "2026-04-24T00:00:00.000Z",
       },
     });
   });
@@ -498,8 +514,44 @@ describe("selectImageForPolicyBlockingReport", () => {
       status: "image_selection_error",
       messageSource: "selector",
       message:
-        "Newest analyzed image is ambiguous: 2 digests share timestamp 2026-04-02T00:00:00Z.",
+        "Newest analyzed image is ambiguous: 2 digests share timestamp 2026-04-02T00:00:00.000Z.",
     });
+  });
+
+  it("canonicalizes string timestamps before selector-safe interpolation", async () => {
+    const rawTimestamp =
+      "Thu, 02 Apr 2026 00:00:00 GMT (CUSTOMER_SECRET_MARKER)";
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          image_digest: "sha256:a",
+          full_tag: "registry.example.com/team/app:1",
+          analyzed_at: rawTimestamp,
+        },
+        {
+          image_digest: "sha256:b",
+          full_tag: "registry.example.com/team/app:2",
+          analyzed_at: rawTimestamp,
+        },
+      ]),
+    );
+
+    const result = await selectImageForPolicyBlockingReport(
+      {
+        image_registry: "registry.example.com",
+        image_repository: "team/app",
+      },
+      testConn(),
+      { fetch: fetchMock },
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      messageSource: "selector",
+      message:
+        "Newest analyzed image is ambiguous: 2 digests share timestamp 2026-04-02T00:00:00.000Z.",
+    });
+    expect(JSON.stringify(result)).not.toContain("CUSTOMER_SECRET_MARKER");
   });
 
   it("marks a list-images exception as an untrusted backend message", async () => {

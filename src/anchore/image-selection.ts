@@ -186,7 +186,7 @@ function timestampFromRow(
       const value = raw.trim();
       const parsed = Date.parse(value);
       if (Number.isFinite(parsed)) {
-        return { value, parsed };
+        return { value: new Date(parsed).toISOString(), parsed };
       }
     }
   }

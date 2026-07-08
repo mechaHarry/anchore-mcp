@@ -136,7 +136,7 @@ export function mergeListImagesQueryParams(
       rejectedKeys.push(k);
       continue;
     }
-    if (k === "full_tag" && args.fulltag?.trim()) {
+    if ((k === "full_tag" || k === "fulltag") && args.fulltag?.trim()) {
       continue;
     }
     if (k === "vulnerability_id" && args.vulnerability_id?.trim()) {
