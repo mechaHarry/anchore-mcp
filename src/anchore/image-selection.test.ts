@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResolvedAnchoreConnection } from "../config/connection.js";
+import { clearOpenApiCacheForTests } from "./openapi-fetch.js";
 import { selectImageForPolicyBlockingReport } from "./image-selection.js";
 
 function testConn(): ResolvedAnchoreConnection {
@@ -17,6 +18,26 @@ function okList(items: unknown[]): Response {
     headers: { "Content-Type": "application/json" },
   });
 }
+
+const V1_REPOSITORY_UNAVAILABLE_MESSAGE =
+  "Repository selection is unavailable for this v1 deployment because its OpenAPI does not advertise registry and repository filters on image tag summaries.";
+
+function v1SummaryOpenApi(
+  parameters: unknown[],
+  path = "/v1/summaries/image-tags",
+): unknown {
+  return {
+    paths: {
+      [path]: {
+        get: { parameters },
+      },
+    },
+  };
+}
+
+beforeEach(() => {
+  clearOpenApiCacheForTests();
+});
 
 describe("selectImageForPolicyBlockingReport", () => {
   it("uses a digest directly", async () => {
@@ -281,6 +302,140 @@ describe("selectImageForPolicyBlockingReport", () => {
     expect(requestUrl).toContain("registry=registry.example.com");
     expect(requestUrl).toContain("repository=team%2Fapp");
     expect(requestUrl).toContain("analysis_status=analyzed");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(requestUrl).not.toContain("/openapi.json");
+  });
+
+  it.each([
+    ["route missing", { paths: {} }],
+    [
+      "GET missing",
+      {
+        paths: {
+          "/v1/summaries/image-tags": {
+            post: {
+              parameters: [
+                { name: "registry", in: "query" },
+                { name: "repository", in: "query" },
+              ],
+            },
+          },
+        },
+      },
+    ],
+    [
+      "repository parameter missing",
+      v1SummaryOpenApi([{ name: "registry", in: "query" }]),
+    ],
+    [
+      "unresolved parameter refs",
+      v1SummaryOpenApi([
+        { $ref: "#/components/parameters/registry" },
+        { $ref: "#/components/parameters/repository" },
+      ]),
+    ],
+  ])("fails closed for v1 when OpenAPI support is %s", async (_case, doc) => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(doc), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const result = await selectImageForPolicyBlockingReport(
+      {
+        image_registry: "registry.example.com",
+        image_repository: "team/app",
+      },
+      { ...testConn(), apiVersion: "v1" },
+      { fetch: fetchMock },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      status: "image_selection_error",
+      messageSource: "selector",
+      message: V1_REPOSITORY_UNAVAILABLE_MESSAGE,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/v1/openapi.json");
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain("/summaries/image-tags");
+  });
+
+  it("returns the static v1 unavailable error when OpenAPI fetch fails", async () => {
+    const rawMarker = "RAW_OPENAPI_ERROR_MARKER";
+    const fetchMock = vi.fn().mockRejectedValue(new Error(rawMarker));
+
+    const result = await selectImageForPolicyBlockingReport(
+      {
+        image_registry: "registry.example.com",
+        image_repository: "team/app",
+      },
+      { ...testConn(), apiVersion: "v1" },
+      { fetch: fetchMock },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      status: "image_selection_error",
+      messageSource: "selector",
+      message: V1_REPOSITORY_UNAVAILABLE_MESSAGE,
+    });
+    expect(JSON.stringify(result)).not.toContain(rawMarker);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/v1/openapi.json");
+  });
+
+  it.each([
+    "/v1/summaries/image-tags",
+    "/summaries/image-tags",
+  ])("proceeds with v1 repository selection when OpenAPI advertises %s", async (path) => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/v1/openapi.json")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify(
+              v1SummaryOpenApi(
+                [
+                  { name: "registry", in: "query" },
+                  { name: "repository", in: "query" },
+                ],
+                path,
+              ),
+            ),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        okList([
+          {
+            image_digest: "sha256:v1-selected",
+            full_tag: "registry.example.com/team/app:1",
+            analyzed_at: "2026-04-03T00:00:00Z",
+          },
+        ]),
+      );
+    });
+
+    const result = await selectImageForPolicyBlockingReport(
+      {
+        image_registry: "registry.example.com",
+        image_repository: "team/app",
+      },
+      { ...testConn(), apiVersion: "v1" },
+      { fetch: fetchMock },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      selectedImage: { digest: "sha256:v1-selected" },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/v1/openapi.json");
+    expect(String(fetchMock.mock.calls[1][0])).toContain(
+      "/v1/summaries/image-tags?",
+    );
   });
 
   it("fails closed when an exact repository digest row has an invalid timestamp", async () => {

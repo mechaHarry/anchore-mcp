@@ -12,6 +12,7 @@ import {
   type ListImagesPageCaps,
 } from "./list-images-pages.js";
 import { fetchAllImageTagSummaryPages } from "./image-tag-summary-pages.js";
+import { v1ImageTagSummaryFiltersAdvertised } from "./image-tag-summary-capabilities.js";
 
 export type PolicyBlockingImageLocator = {
   image_digest?: string;
@@ -84,6 +85,8 @@ const TIMESTAMP_KEYS = [
 const MAX_PLAUSIBLE_EPOCH_SECONDS = 10_000_000_000;
 const UNPROVEN_NEWEST_IMAGE_MESSAGE =
   "Cannot prove newest image because a matching digest-bearing row lacked a reliable analysis timestamp.";
+const V1_REPOSITORY_SELECTION_UNAVAILABLE_MESSAGE =
+  "Repository selection is unavailable for this v1 deployment because its OpenAPI does not advertise registry and repository filters on image tag summaries.";
 
 function imageSelectionError(message: string): ImageSelectionError {
   return {
@@ -430,6 +433,18 @@ async function selectByRepository(
     repository: validatedRepository.value,
   };
   const qualifiedRepository = `${locator.registry}/${locator.repository}`;
+
+  if (connection.apiVersion === "v1") {
+    const clientOptions = { ...options };
+    delete (clientOptions as { listCaps?: ListImagesPageCaps }).listCaps;
+    const advertised = await v1ImageTagSummaryFiltersAdvertised(
+      connection,
+      clientOptions,
+    );
+    if (!advertised) {
+      return imageSelectionError(V1_REPOSITORY_SELECTION_UNAVAILABLE_MESSAGE);
+    }
+  }
 
   const params = new URLSearchParams();
   params.set("registry", locator.registry);
