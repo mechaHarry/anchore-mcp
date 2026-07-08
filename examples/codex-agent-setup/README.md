@@ -89,29 +89,36 @@ read-only and consciously added to both the allowlist and an approval stanza.
 
 ## `.codex/anchore-mcp.env.json`
 
-Use mode `0600` on this file.
+Set a restrictive umask **before** creating the directory or file. In the same
+shell, open the new file with your editor:
 
 ```bash
-chmod 600 .codex/anchore-mcp.env.json
+umask 077
+mkdir -p .codex
+${EDITOR:-vi} .codex/anchore-mcp.env.json
 ```
+
+Paste one complete JSON object. `ANCHORE_URL` and `ANCHORE_TOKEN` are required;
+delete any optional keys you do not use:
 
 ```json
 {
   "ANCHORE_URL": "https://anchore.example.com",
   "ANCHORE_TOKEN": "<anchore-api-token>",
-  "ANCHORE_ACCOUNT": "example-account"
-}
-```
-
-Optional:
-
-```json
-{
+  "ANCHORE_ACCOUNT": "<optional-account>",
   "ANCHORE_API_VERSION": "v2",
   "ANCHORE_HTTP_MAX_RETRIES": "2",
   "ANCHORE_HTTP_RETRY_BASE_MS": "300",
   "ANCHORE_HTTP_RETRY_MAX_MS": "8000"
 }
+```
+
+After saving, enforce mode `0600` defensively and verify it on macOS. The final
+command prints `600`:
+
+```bash
+chmod 600 .codex/anchore-mcp.env.json
+stat -f '%Lp' .codex/anchore-mcp.env.json
 ```
 
 ## `.codex/anchore-mcp-launcher.mjs`
@@ -166,6 +173,7 @@ Validate the executable, launcher, and server paths without reading the secret
 file:
 
 ```bash
+test -d /absolute/path/to/your-repo
 test -x /absolute/path/to/node
 test -f /absolute/path/to/your-repo/.codex/anchore-mcp-launcher.mjs
 test -f /absolute/path/to/anchore-mcp/dist/index.js

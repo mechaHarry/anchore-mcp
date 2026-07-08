@@ -64,6 +64,7 @@ Use an executable Node path, not `dist/index.js`, as `command`. A bare `node` de
 
 ```bash
 command -v node
+test -d /absolute/path/to/anchore-mcp
 test -x /absolute/path/to/node
 test -f /absolute/path/to/anchore-mcp/dist/index.js
 ```
@@ -184,54 +185,47 @@ The tool calls Anchore policy check first. If policy is already green, it return
 
 ## Run (stdio MCP)
 
-After `pnpm run build`:
+After `pnpm run build`, load `ANCHORE_URL` and `ANCHORE_TOKEN` into the current
+shell from your approved secret manager, then run:
 
 ```bash
-export ANCHORE_URL=https://anchore.example.com
-export ANCHORE_TOKEN=your-api-token
 node dist/index.js
 ```
 
-This process speaks **MCP over stdio** (stdin/stdout). It does **not** expose an HTTP URL. **Do not** put the token in repo files; pass it via the host’s MCP `env` block.
+This process speaks **MCP over stdio** (stdin/stdout). It does **not** expose an HTTP URL. Do not put tokens in repo files or command history. For Codex, use the canonical [minimal setup](#minimal-codex-setup-all-read-only-tools-no-prompts) and its secure launcher pattern rather than inline host environment fields.
 
 ## Cursor IDE
 
 Cursor’s MCP UI often shows **URL** and **headers** first. Those fields are for **remote** MCP servers (HTTP or SSE). **This server is local stdio** — ignore URL and headers for normal use.
 
-Configure a **command-based** entry instead (names and paths differ by Cursor version):
+Configure a **command-based** entry instead (names and paths differ by Cursor version). Keep the Cursor config, launcher, and environment file gitignored; set both the config and environment file to mode `0600`. MCP diagnostics can expose inline `env` values, so use the [launcher and separate environment-file pattern](examples/codex-agent-setup/README.md) and adapt its private `.codex/` paths for Cursor.
 
 1. Open MCP settings and add a server that runs a **shell command** (sometimes labeled “stdio”, “local”, or “command”).
 2. **Command:** the absolute path to your Node binary. A bare `node` works only when the MCP child process's `PATH` contains Node.
-3. **Arguments:** absolute path to `dist/index.js` in your clone of this repo, e.g. `/path/to/anchore-mcp/dist/index.js`.
-4. **Environment variables:** set `ANCHORE_URL`, `ANCHORE_TOKEN`, and optionally `ANCHORE_ACCOUNT`.
+3. **Arguments:** the absolute path to your private launcher file.
+4. **Environment variables:** load them from the launcher's separate, mode-`0600` environment file; do not put them inline in the Cursor MCP JSON.
 
-Example fragment for a JSON-style MCP config:
+Cursor-only transport example (no credentials):
 
 ```json
 {
   "mcpServers": {
     "anchore-mcp": {
       "command": "/absolute/path/to/node",
-      "args": ["/absolute/path/to/anchore-mcp/dist/index.js"],
-      "env": {
-        "ANCHORE_URL": "https://anchore.example.com",
-        "ANCHORE_TOKEN": "your-api-token-here",
-        "ANCHORE_ACCOUNT": "optional-account-name",
-        "ANCHORE_API_VERSION": "v2"
-      }
+      "args": ["/absolute/path/to/private/anchore-mcp-launcher.mjs"]
     }
   }
 }
 ```
 
-If your Cursor build only offers URL + headers and no command field, check the docs or settings for **stdio** / **local command** MCP, or use the project/user `mcp.json` file Cursor reads so you can paste the JSON above.
+Before opening Cursor, run `chmod 600` on its gitignored `mcp.json` and environment file. If your Cursor build only offers URL + headers and no command field, check the docs or settings for **stdio** / **local command** MCP, or use the protected project/user `mcp.json` file Cursor reads.
 
 ### Troubleshooting MCP startup (Cursor / agent)
 
 - **`ANCHORE_*` at startup:** The server **no longer exits** if `ANCHORE_URL` / `ANCHORE_TOKEN` are missing. It starts so the MCP handshake can finish (including IDE trust prompts and `agent` CLI checks). Configuration is loaded when you run a tool; until then, `anchore_connection_info` returns `configured: false` and other tools return a clear configuration error.
-- **Still failing to connect:** Ensure your `mcp.json` **`env`** block lists every variable you need. Cursor does **not** load your shell profile for the MCP child process.
+- **Still failing to connect:** Ensure the private launcher reads the intended mode-`0600` environment file. Cursor does **not** load your shell profile for the MCP child process.
 - **`ANCHORE_URL` must be `https://...`:** Invalid URLs are rejected when a tool loads the connection (not at process start).
-- **Agent terminal vs MCP:** Running `node dist/index.js` in Cursor’s **terminal** only sees variables you `export` there; the **MCP server** uses only the **`env`** block in JSON.
+- **Agent terminal vs MCP:** Running `node dist/index.js` in Cursor’s **terminal** sees that terminal's environment; the configured MCP child receives the environment supplied by its private launcher.
 - **JSON syntax:** Invalid `mcp.json` (e.g. trailing commas) can prevent Cursor from loading MCP servers — validate the file.
 
 ### MCP stdin / trust race (Cursor, `agent`, etc.)
