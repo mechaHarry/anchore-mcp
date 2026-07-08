@@ -9,6 +9,7 @@ import {
 import {
   digestFromImageRow,
   extractImageListRows,
+  fullImageReferencesFromRow,
   validateFullImageReference,
 } from "./image-records.js";
 
@@ -32,22 +33,7 @@ export type ResolveImageReferenceResult =
   | { kind: "upstream_error"; message: string };
 
 function tagHintsFromRow(row: unknown): string[] | undefined {
-  if (row === null || typeof row !== "object") {
-    return undefined;
-  }
-  const o = row as Record<string, unknown>;
-  const tags: string[] = [];
-  const fulltag = o.fulltag ?? o.full_tag ?? o.tag;
-  if (typeof fulltag === "string" && fulltag.trim().length > 0) {
-    tags.push(fulltag.trim());
-  }
-  if (Array.isArray(o.tags)) {
-    for (const t of o.tags) {
-      if (typeof t === "string" && t.trim().length > 0) {
-        tags.push(t.trim());
-      }
-    }
-  }
+  const tags = fullImageReferencesFromRow(row);
   return tags.length > 0 ? tags : undefined;
 }
 
@@ -66,8 +52,9 @@ export async function resolveImageReference(
     return { kind: "upstream_error", message: validated.message };
   }
 
+  const requestedReference = imageReference.trim();
   const params = new URLSearchParams();
-  params.set(imageFullTagQueryKey(connection.apiVersion), imageReference.trim());
+  params.set(imageFullTagQueryKey(connection.apiVersion), requestedReference);
 
   const { listCaps: capsOverride, ...clientOptions } = options ?? {};
   const client = createAnchoreClient(connection, clientOptions);
@@ -104,6 +91,10 @@ export async function resolveImageReference(
   const byDigest = new Map<string, ResolveCandidate>();
 
   for (const row of rows) {
+    const references = fullImageReferencesFromRow(row);
+    if (!references.includes(requestedReference)) {
+      continue;
+    }
     const digest = digestFromImageRow(row);
     if (digest === undefined) {
       continue;

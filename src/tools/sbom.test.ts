@@ -71,10 +71,20 @@ describe("runImageSbom", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ items: [{ image_digest: d }] }), {
+        new Response(
+          JSON.stringify({
+            items: [
+              {
+                image_digest: d,
+                full_tag: "docker.io/library/nginx:1.21",
+              },
+            ],
+          }),
+          {
           status: 200,
           headers: { "Content-Type": "application/json" },
-        }),
+          },
+        ),
       )
       .mockResolvedValueOnce(
         new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }),

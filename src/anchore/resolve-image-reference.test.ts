@@ -14,12 +14,145 @@ function testConn(): ResolvedAnchoreConnection {
 const FQ_REF = "docker.io/library/nginx:1.21";
 
 describe("resolveImageReference", () => {
+  it("ignores a single unrelated row when the backend filter is loose", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              image_digest: "sha256:unrelated",
+              full_tag: "docker.io/library/redis:7",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await expect(
+      resolveImageReference(testConn(), FQ_REF, { fetch: fetchMock }),
+    ).resolves.toEqual({ kind: "no_match" });
+  });
+
+  it("selects only the exact row from mixed backend results", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              image_digest: "sha256:exact",
+              full_tag: FQ_REF,
+            },
+            {
+              image_digest: "sha256:unrelated",
+              full_tag: "docker.io/library/nginx:latest",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await expect(
+      resolveImageReference(testConn(), FQ_REF, { fetch: fetchMock }),
+    ).resolves.toEqual({ kind: "ok", digest: "sha256:exact" });
+  });
+
+  it("matches an exact reference derived from nested official image detail", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              image_digest: "sha256:nested",
+              image_detail: [
+                { registry: "docker.io", repo: "library/nginx", tag: "1.21" },
+              ],
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await expect(
+      resolveImageReference(testConn(), FQ_REF, { fetch: fetchMock }),
+    ).resolves.toEqual({ kind: "ok", digest: "sha256:nested" });
+  });
+
+  it("does not treat a nested tag component as a complete reference", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              image_digest: "sha256:synthetic",
+              image_detail: {
+                registry: "other.example.com",
+                repo: "other/app",
+                tag: FQ_REF,
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await expect(
+      resolveImageReference(testConn(), FQ_REF, { fetch: fetchMock }),
+    ).resolves.toEqual({ kind: "no_match" });
+  });
+
+  it("does not trust a digest row without reference evidence", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ items: [{ image_digest: "sha256:unproven" }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await expect(
+      resolveImageReference(testConn(), FQ_REF, { fetch: fetchMock }),
+    ).resolves.toEqual({ kind: "no_match" });
+  });
+
+  it("matches a nested reference with a registry port and real tag", async () => {
+    const requested = "registry.example.com:5000/team/app:release";
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              image_digest: "sha256:port",
+              imageDetail: {
+                registry: "registry.example.com:5000",
+                repository: "team/app",
+                tag: "release",
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await expect(
+      resolveImageReference(testConn(), requested, { fetch: fetchMock }),
+    ).resolves.toEqual({ kind: "ok", digest: "sha256:port" });
+  });
+
   it("returns ok when a single digest matches", async () => {
     const connection = testConn();
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          items: [{ image_digest: "sha256:" + "a".repeat(64) }],
+          items: [
+            {
+              image_digest: "sha256:" + "a".repeat(64),
+              full_tag: FQ_REF,
+            },
+          ],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
@@ -34,7 +167,7 @@ describe("resolveImageReference", () => {
   it("uses the v1 fulltag wire key", async () => {
     const d = `sha256:${"1".repeat(64)}`;
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ images: [{ image_digest: d }] }), {
+      new Response(JSON.stringify({ images: [{ image_digest: d, fulltag: FQ_REF }] }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }),
@@ -89,7 +222,10 @@ describe("resolveImageReference", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          items: [{ image_digest: d1 }, { image_digest: d2 }],
+          items: [
+            { image_digest: d1, full_tag: FQ_REF },
+            { image_digest: d2, full_tag: FQ_REF },
+          ],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
@@ -97,7 +233,10 @@ describe("resolveImageReference", () => {
     const out = await resolveImageReference(connection, FQ_REF, { fetch: fetchMock });
     expect(out.kind).toBe("disambiguate");
     if (out.kind === "disambiguate") {
-      expect(out.candidates).toHaveLength(2);
+      expect(out.candidates).toEqual([
+        { digest: d1, tags: [FQ_REF] },
+        { digest: d2, tags: [FQ_REF] },
+      ]);
       expect(out.disambiguation_truncated).toBe(false);
     }
   });
@@ -106,6 +245,7 @@ describe("resolveImageReference", () => {
     const connection = testConn();
     const items = Array.from({ length: 51 }, (_, i) => ({
       image_digest: `sha256:${i.toString(16).padStart(64, "0")}`,
+      full_tag: FQ_REF,
     }));
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ items }), {

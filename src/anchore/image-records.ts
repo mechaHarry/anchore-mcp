@@ -90,3 +90,102 @@ export function validateFullImageReference(ref: string): { ok: true } | { ok: fa
   }
   return { ok: true };
 }
+
+const TOP_LEVEL_FULL_REFERENCE_KEYS = [
+  "full_tag",
+  "fulltag",
+  "image_tag",
+  "imageTag",
+  "tag",
+] as const;
+const DETAIL_FULL_REFERENCE_KEYS = [
+  "full_tag",
+  "fulltag",
+  "image_tag",
+  "imageTag",
+] as const;
+const IMAGE_DETAIL_KEYS = ["image_detail", "imageDetail"] as const;
+const IMAGE_TAG_COMPONENT = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/;
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
+function addValidFullReference(out: Set<string>, value: unknown): void {
+  const reference = nonEmptyString(value);
+  if (reference !== undefined && validateFullImageReference(reference).ok) {
+    out.add(reference);
+  }
+}
+
+function addDirectReferences(
+  out: Set<string>,
+  object: Record<string, unknown>,
+  keys: readonly string[],
+): void {
+  for (const key of keys) {
+    addValidFullReference(out, object[key]);
+  }
+  if (Array.isArray(object.tags)) {
+    for (const tag of object.tags) {
+      addValidFullReference(out, tag);
+    }
+  }
+}
+
+function addCoherentDetailReference(
+  out: Set<string>,
+  detail: Record<string, unknown>,
+): void {
+  const registry = nonEmptyString(detail.registry);
+  const repo = nonEmptyString(detail.repo);
+  const repository = nonEmptyString(detail.repository);
+  const tag = nonEmptyString(detail.tag);
+
+  // Conflicting aliases are not a coherent shape; never synthesize across them.
+  if (
+    registry === undefined ||
+    tag === undefined ||
+    !IMAGE_TAG_COMPONENT.test(tag) ||
+    (repo !== undefined && repository !== undefined && repo !== repository)
+  ) {
+    return;
+  }
+  const coherentRepository = repo ?? repository;
+  if (coherentRepository !== undefined) {
+    addValidFullReference(
+      out,
+      `${registry}/${coherentRepository}:${tag}`,
+    );
+  }
+}
+
+/**
+ * Extract locally provable full references from one image row without combining
+ * fields across objects or incompatible aliases.
+ */
+export function fullImageReferencesFromRow(row: unknown): string[] {
+  if (row === null || typeof row !== "object") {
+    return [];
+  }
+  const object = row as Record<string, unknown>;
+  const references = new Set<string>();
+  addDirectReferences(references, object, TOP_LEVEL_FULL_REFERENCE_KEYS);
+
+  for (const key of IMAGE_DETAIL_KEYS) {
+    const raw = object[key];
+    const details = Array.isArray(raw) ? raw : [raw];
+    for (const detail of details) {
+      if (detail === null || typeof detail !== "object") {
+        continue;
+      }
+      const detailObject = detail as Record<string, unknown>;
+      addDirectReferences(references, detailObject, DETAIL_FULL_REFERENCE_KEYS);
+      addCoherentDetailReference(references, detailObject);
+    }
+  }
+
+  return [...references];
+}
