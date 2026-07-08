@@ -1,4 +1,5 @@
 import type { ResolvedAnchoreConnection } from "../config/connection.js";
+import { imageFullTagQueryKey } from "./api-paths.js";
 import { createAnchoreClient, type AnchoreClientOptions } from "./client.js";
 import {
   DEFAULT_RESOLUTION_LIST_CAPS,
@@ -51,7 +52,7 @@ function tagHintsFromRow(row: unknown): string[] | undefined {
 }
 
 /**
- * Resolve a full image reference to a single digest using GET /images?full_tag=… (paginated).
+ * Resolve a full image reference using the API version's full-tag query key (paginated).
  */
 export async function resolveImageReference(
   connection: ResolvedAnchoreConnection,
@@ -66,7 +67,7 @@ export async function resolveImageReference(
   }
 
   const params = new URLSearchParams();
-  params.set("full_tag", imageReference.trim());
+  params.set(imageFullTagQueryKey(connection.apiVersion), imageReference.trim());
 
   const { listCaps: capsOverride, ...clientOptions } = options ?? {};
   const client = createAnchoreClient(connection, clientOptions);
@@ -89,11 +90,13 @@ export async function resolveImageReference(
   }
 
   if (enumerationIncomplete) {
+    const queryKey = imageFullTagQueryKey(connection.apiVersion);
+    const baseReason =
+      incompleteReason ??
+      `Image list enumeration incomplete after ${pagesFetched} page(s).`;
     return {
       kind: "enumeration_incomplete",
-      reason:
-        incompleteReason ??
-        `Image list enumeration incomplete after ${pagesFetched} page(s). Narrow full_tag or raise caps.`,
+      reason: `${baseReason} Narrow ${queryKey} or raise caps.`,
     };
   }
 

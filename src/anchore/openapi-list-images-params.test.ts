@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   FALLBACK_LIST_IMAGES_QUERY_KEYS,
   extractListImagesQueryParameterNames,
+  getFallbackListImagesQueryKeys,
   mergeListImagesQueryParams,
 } from "./openapi-list-images-params.js";
 
@@ -44,6 +45,7 @@ describe("mergeListImagesQueryParams", () => {
         list_query: { name: "x", limit: "10" },
       },
       allow,
+      "v2",
     );
     expect(params.get("name")).toBe("x");
     expect(params.get("limit")).toBe("10");
@@ -57,6 +59,7 @@ describe("mergeListImagesQueryParams", () => {
         list_query: { not_allowed: "1" },
       },
       allow,
+      "v2",
     );
     expect(rejectedKeys).toContain("not_allowed");
   });
@@ -72,8 +75,41 @@ describe("mergeListImagesQueryParams", () => {
         },
       },
       allow,
+      "v2",
     );
     expect(params.get("full_tag")).toBe("docker.io/a:b");
     expect(params.has("fulltag")).toBe(false);
+  });
+
+  it.each([
+    ["v1", "fulltag", "full_tag"],
+    ["v2", "full_tag", "fulltag"],
+  ] as const)("maps public fulltag to the %s wire key", (version, expected, absent) => {
+    const allow = new Set(["fulltag", "full_tag"]);
+    const { params } = mergeListImagesQueryParams(
+      {
+        fulltag: "registry.example.com/team/app:1",
+        list_query: {
+          fulltag: "registry.example.com/legacy/app:1",
+          full_tag: "registry.example.com/custom/app:1",
+        },
+      },
+      allow,
+      version,
+    );
+
+    expect(params.get(expected)).toBe("registry.example.com/team/app:1");
+    expect(params.has(absent)).toBe(false);
+  });
+});
+
+describe("getFallbackListImagesQueryKeys", () => {
+  it.each([
+    ["v1", "fulltag", "full_tag"],
+    ["v2", "full_tag", "fulltag"],
+  ] as const)("trusts only the %s full-tag fallback key", (version, expected, absent) => {
+    const keys = getFallbackListImagesQueryKeys(version);
+    expect(keys).toContain(expected);
+    expect(keys).not.toContain(absent);
   });
 });

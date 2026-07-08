@@ -31,6 +31,27 @@ describe("resolveImageReference", () => {
     expect(fetchMock.mock.calls[0][0]).not.toContain("fulltag=");
   });
 
+  it("uses the v1 fulltag wire key", async () => {
+    const d = `sha256:${"1".repeat(64)}`;
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ images: [{ image_digest: d }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const out = await resolveImageReference(
+      { ...testConn(), apiVersion: "v1" },
+      FQ_REF,
+      { fetch: fetchMock },
+    );
+
+    expect(out).toEqual({ kind: "ok", digest: d });
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("/v1/images?fulltag=");
+    expect(url).not.toContain("full_tag=");
+  });
+
   it("dedupes multiple rows with the same digest", async () => {
     const connection = testConn();
     const d = `sha256:${"b".repeat(64)}`;
@@ -116,6 +137,30 @@ describe("resolveImageReference", () => {
       listCaps: { maxPages: 1, maxItems: 10_000 },
     });
     expect(out.kind).toBe("enumeration_incomplete");
+  });
+
+  it("uses the v1 query key in incomplete-enumeration guidance", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ images: [] }), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          Link: '</v1/images?page=2>; rel="next"',
+        },
+      }),
+    );
+
+    const out = await resolveImageReference(
+      { ...testConn(), apiVersion: "v1" },
+      FQ_REF,
+      { fetch: fetchMock, listCaps: { maxPages: 1, maxItems: 10_000 } },
+    );
+
+    expect(out).toMatchObject({ kind: "enumeration_incomplete" });
+    if (out.kind === "enumeration_incomplete") {
+      expect(out.reason).toContain("Narrow fulltag");
+      expect(out.reason).not.toContain("full_tag");
+    }
   });
 
   it("rejects non-FQDN references with upstream_error", async () => {

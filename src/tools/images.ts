@@ -1,7 +1,7 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createAnchoreClient } from "../anchore/client.js";
 import {
-  FALLBACK_LIST_IMAGES_QUERY_KEYS,
+  getFallbackListImagesQueryKeys,
   getListImagesQueryParameterAllowlist,
   mergeListImagesQueryParams,
 } from "../anchore/openapi-list-images-params.js";
@@ -103,8 +103,12 @@ export async function runListImages(
         ? await getListImagesQueryParameterAllowlist(connection, {
             fetch: options?.fetch,
           })
-        : new Set(FALLBACK_LIST_IMAGES_QUERY_KEYS);
-    const { params, rejectedKeys } = mergeListImagesQueryParams(args, allowlist);
+        : new Set(getFallbackListImagesQueryKeys(connection.apiVersion));
+    const { params, rejectedKeys } = mergeListImagesQueryParams(
+      args,
+      allowlist,
+      connection.apiVersion,
+    );
     let listQueryNote: string | undefined;
     if (rejectedKeys.length > 0) {
       const sample = rejectedKeys.slice(0, 8).join(", ");

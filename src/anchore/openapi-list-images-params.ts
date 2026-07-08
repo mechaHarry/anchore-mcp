@@ -1,6 +1,6 @@
 import type { ResolvedAnchoreConnection } from "../config/connection.js";
 import type { AnchoreApiVersion } from "./api-paths.js";
-import { imagesListPath } from "./api-paths.js";
+import { imageFullTagQueryKey, imagesListPath } from "./api-paths.js";
 import type { AnchoreClientOptions } from "./client.js";
 import { fetchOpenApiDocument } from "./openapi-fetch.js";
 
@@ -9,8 +9,7 @@ import { fetchOpenApiDocument } from "./openapi-fetch.js";
  * allow these common GET /v1|/v2/images keys. Deployment-specific params should appear
  * in openapi.json — if not, operators can request extending this fallback list.
  */
-export const FALLBACK_LIST_IMAGES_QUERY_KEYS = [
-  "full_tag",
+const COMMON_FALLBACK_LIST_IMAGES_QUERY_KEYS = [
   "vulnerability_id",
   "limit",
   "page",
@@ -20,6 +19,16 @@ export const FALLBACK_LIST_IMAGES_QUERY_KEYS = [
   "image_digest",
   "tag",
 ] as const;
+
+export function getFallbackListImagesQueryKeys(
+  version: AnchoreApiVersion,
+): readonly string[] {
+  return [imageFullTagQueryKey(version), ...COMMON_FALLBACK_LIST_IMAGES_QUERY_KEYS];
+}
+
+/** Backward-compatible v2 fallback export. Prefer getFallbackListImagesQueryKeys. */
+export const FALLBACK_LIST_IMAGES_QUERY_KEYS =
+  getFallbackListImagesQueryKeys("v2");
 
 function listImagesOpenApiPath(version: AnchoreApiVersion): string {
   return version === "v1" ? "/v1/images" : "/v2/images";
@@ -73,7 +82,9 @@ export async function getListImagesQueryParameterAllowlist(
   connection: ResolvedAnchoreConnection,
   options?: AnchoreClientOptions,
 ): Promise<Set<string>> {
-  const base = new Set<string>(FALLBACK_LIST_IMAGES_QUERY_KEYS);
+  const base = new Set<string>(
+    getFallbackListImagesQueryKeys(connection.apiVersion),
+  );
   try {
     const doc = await fetchOpenApiDocument(connection, options);
     const pathKey = listImagesOpenApiPath(connection.apiVersion);
@@ -104,17 +115,19 @@ export type ListImagesQueryInput = {
 
 /**
  * Build `URLSearchParams` for GET /v1|/v2/images. Public `fulltag` is translated to
- * the official wire key `full_tag`; explicit filters win over duplicate `list_query` keys.
+ * the version's wire key (`fulltag` for v1, `full_tag` for v2); explicit filters
+ * win over both aliases in `list_query`.
  */
 export function mergeListImagesQueryParams(
   args: ListImagesQueryInput,
   allowlist: Set<string>,
+  version: AnchoreApiVersion,
 ): { params: URLSearchParams; rejectedKeys: string[] } {
   const params = new URLSearchParams();
   const rejectedKeys: string[] = [];
 
   if (args.fulltag?.trim()) {
-    params.set("full_tag", args.fulltag.trim());
+    params.set(imageFullTagQueryKey(version), args.fulltag.trim());
   }
   if (args.vulnerability_id?.trim()) {
     params.set("vulnerability_id", args.vulnerability_id.trim());

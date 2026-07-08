@@ -61,6 +61,44 @@ describe("runListImages", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("https://anchore.example.com/v1/images");
   });
 
+  it("maps the public fulltag input to v1 fulltag", async () => {
+    const connection = testConnection("v1");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ images: [] }), { status: 200 }),
+    );
+
+    await runListImages(
+      { fulltag: "registry.example.com/team/app:1" },
+      { connection, fetch: fetchMock },
+    );
+
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("/v1/images?fulltag=");
+    expect(url).not.toContain("full_tag=");
+  });
+
+  it("uses the v1 fulltag fallback when OpenAPI discovery fails", async () => {
+    const connection = testConnection("v1");
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/openapi.json")) {
+        return new Response("unavailable", { status: 503 });
+      }
+      return new Response(JSON.stringify({ images: [] }), { status: 200 });
+    });
+
+    await runListImages(
+      { list_query: { fulltag: "registry.example.com/team/app:1" } },
+      { connection, fetch: fetchMock },
+    );
+
+    const imagesCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes("/v1/images"),
+    );
+    expect(imagesCall).toBeDefined();
+    expect(String(imagesCall![0])).toContain("fulltag=");
+    expect(String(imagesCall![0])).not.toContain("full_tag=");
+  });
+
   it("summarizes v2 items-shaped list responses", async () => {
     const connection = testConnection();
     const fetchMock = vi.fn().mockResolvedValue(

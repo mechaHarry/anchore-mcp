@@ -1,4 +1,5 @@
 import type { ResolvedAnchoreConnection } from "../config/connection.js";
+import { imageFullTagQueryKey } from "./api-paths.js";
 import { createAnchoreClient, type AnchoreClientOptions } from "./client.js";
 import {
   digestFromImageRow,
@@ -81,6 +82,8 @@ const TIMESTAMP_KEYS = [
 // magnitudes are interpreted as epoch milliseconds. This also supports legacy
 // millisecond values before the common 1e12 heuristic boundary.
 const MAX_PLAUSIBLE_EPOCH_SECONDS = 10_000_000_000;
+const UNPROVEN_NEWEST_IMAGE_MESSAGE =
+  "Cannot prove newest image because a matching digest-bearing row lacked a reliable analysis timestamp.";
 
 function imageSelectionError(message: string): ImageSelectionError {
   return {
@@ -370,7 +373,7 @@ async function selectByReference(
 
   const reference = imageReference.trim();
   const params = new URLSearchParams();
-  params.set("full_tag", reference);
+  params.set(imageFullTagQueryKey(connection.apiVersion), reference);
 
   const rows = await listImages(params, connection, options);
   if (!Array.isArray(rows)) {
@@ -388,9 +391,13 @@ async function selectByReference(
       continue;
     }
     const digest = digestFromImageRow(objectRow);
-    const timestamp = timestampFromRow(objectRow);
-    if (digest === undefined || timestamp === undefined) {
+    // A row without a digest cannot be selected and therefore cannot affect newest-digest proof.
+    if (digest === undefined) {
       continue;
+    }
+    const timestamp = timestampFromRow(objectRow);
+    if (timestamp === undefined) {
+      return imageSelectionError(UNPROVEN_NEWEST_IMAGE_MESSAGE);
     }
     candidates.push({
       digest,
@@ -445,9 +452,13 @@ async function selectByRepository(
       continue;
     }
     const digest = digestFromImageRow(objectRow);
-    const timestamp = timestampFromRow(objectRow);
-    if (digest === undefined || timestamp === undefined) {
+    // A row without a digest cannot be selected and therefore cannot affect newest-digest proof.
+    if (digest === undefined) {
       continue;
+    }
+    const timestamp = timestampFromRow(objectRow);
+    if (timestamp === undefined) {
+      return imageSelectionError(UNPROVEN_NEWEST_IMAGE_MESSAGE);
     }
     candidates.push({
       digest,

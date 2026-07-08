@@ -69,6 +69,61 @@ describe("selectImageForPolicyBlockingReport", () => {
     expect(fetchMock.mock.calls[0][0]).toContain(encodeURIComponent(requested));
   });
 
+  it("uses the v1 fulltag wire key for exact reference selection", async () => {
+    const requested = "registry.example.com/team/app:1";
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          image_digest: "sha256:v1",
+          fulltag: requested,
+          analyzed_at: "2026-04-02T00:00:00Z",
+        },
+      ]),
+    );
+
+    const result = await selectImageForPolicyBlockingReport(
+      { image_reference: requested },
+      { ...testConn(), apiVersion: "v1" },
+      { fetch: fetchMock },
+    );
+
+    expect(result.ok).toBe(true);
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url).toContain("/v1/images?fulltag=");
+    expect(url).not.toContain("full_tag=");
+  });
+
+  it("fails closed when an exact digest-bearing reference row lacks a timestamp", async () => {
+    const requested = "registry.example.com/team/app:1";
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          image_digest: "sha256:older",
+          full_tag: requested,
+          analyzed_at: "2026-04-01T00:00:00Z",
+        },
+        {
+          image_digest: "sha256:unknown-newness",
+          full_tag: requested,
+        },
+      ]),
+    );
+
+    const result = await selectImageForPolicyBlockingReport(
+      { image_reference: requested },
+      testConn(),
+      { fetch: fetchMock },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      status: "image_selection_error",
+      messageSource: "selector",
+      message:
+        "Cannot prove newest image because a matching digest-bearing row lacked a reliable analysis timestamp.",
+    });
+  });
+
   it("rejects a port-only colon reference without fetching", async () => {
     const fetchMock = vi.fn();
     const result = await selectImageForPolicyBlockingReport(
@@ -194,6 +249,40 @@ describe("selectImageForPolicyBlockingReport", () => {
     expect(requestUrl).toContain("registry=registry.example.com");
     expect(requestUrl).toContain("repository=team%2Fapp");
     expect(requestUrl).toContain("analysis_status=analyzed");
+  });
+
+  it("fails closed when an exact repository digest row has an invalid timestamp", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          image_digest: "sha256:older",
+          full_tag: "registry.example.com/team/app:1",
+          analyzed_at: "2026-04-01T00:00:00Z",
+        },
+        {
+          image_digest: "sha256:unknown-newness",
+          full_tag: "registry.example.com/team/app:2",
+          analyzed_at: "not-a-timestamp",
+        },
+      ]),
+    );
+
+    const result = await selectImageForPolicyBlockingReport(
+      {
+        image_registry: "registry.example.com",
+        image_repository: "team/app",
+      },
+      testConn(),
+      { fetch: fetchMock },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      status: "image_selection_error",
+      messageSource: "selector",
+      message:
+        "Cannot prove newest image because a matching digest-bearing row lacked a reliable analysis timestamp.",
+    });
   });
 
   it("continues image-tag summary pages while total_rows reports more rows", async () => {
@@ -609,7 +698,7 @@ describe("selectImageForPolicyBlockingReport", () => {
     });
   });
 
-  it("rejects an out-of-range numeric analysis timestamp", async () => {
+  it("fails closed on an out-of-range numeric analysis timestamp", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       okList([
         {
@@ -634,12 +723,12 @@ describe("selectImageForPolicyBlockingReport", () => {
       { fetch: fetchMock },
     );
 
-    expect(result).toMatchObject({
-      ok: true,
-      selectedImage: {
-        digest: "sha256:valid-time",
-        analysisTimestamp: "2026-04-03T00:00:00.000Z",
-      },
+    expect(result).toEqual({
+      ok: false,
+      status: "image_selection_error",
+      messageSource: "selector",
+      message:
+        "Cannot prove newest image because a matching digest-bearing row lacked a reliable analysis timestamp.",
     });
   });
 
