@@ -374,6 +374,28 @@ describe("selectImageForPolicyBlockingReport", () => {
     expect(result).toMatchObject({
       ok: false,
       status: "image_selection_error",
+      messageSource: "selector",
+      message:
+        "Newest analyzed image is ambiguous: 2 digests share timestamp 2026-04-02T00:00:00Z.",
+    });
+  });
+
+  it("marks a list-images exception as an untrusted backend message", async () => {
+    const backendMessage =
+      "Newest analyzed image is ambiguous: 2 digests share timestamp AKIAEXAMPLESECRET1234.";
+    const fetchMock = vi.fn().mockRejectedValue(new Error(backendMessage));
+
+    const result = await selectImageForPolicyBlockingReport(
+      { image_reference: "docker.io/library/nginx:latest" },
+      testConn(),
+      { fetch: fetchMock },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      status: "image_selection_error",
+      messageSource: "backend",
+      message: backendMessage,
     });
   });
 
@@ -420,6 +442,7 @@ describe("selectImageForPolicyBlockingReport", () => {
     ).resolves.toEqual({
       ok: false,
       status: "image_selection_error",
+      messageSource: "selector",
       message:
         "Supply exactly one of image_digest, image_reference, or the image_registry and image_repository pair.",
     });
@@ -435,6 +458,7 @@ describe("selectImageForPolicyBlockingReport", () => {
     ).resolves.toEqual({
       ok: false,
       status: "image_selection_error",
+      messageSource: "selector",
       message:
         "Supply exactly one of image_digest, image_reference, or the image_registry and image_repository pair.",
     });
@@ -451,6 +475,7 @@ describe("selectImageForPolicyBlockingReport", () => {
     ).resolves.toEqual({
       ok: false,
       status: "image_selection_error",
+      messageSource: "selector",
       message:
         "Supply exactly one of image_digest, image_reference, or the image_registry and image_repository pair.",
     });
@@ -467,6 +492,7 @@ describe("selectImageForPolicyBlockingReport", () => {
     ).resolves.toEqual({
       ok: false,
       status: "image_selection_error",
+      messageSource: "selector",
       message:
         "Supply exactly one of image_digest, image_reference, or the image_registry and image_repository pair.",
     });
@@ -486,6 +512,7 @@ describe("selectImageForPolicyBlockingReport", () => {
     ).resolves.toEqual({
       ok: false,
       status: "image_selection_error",
+      messageSource: "selector",
       message: "Supply image_registry and image_repository together.",
     });
     await expect(
@@ -497,6 +524,7 @@ describe("selectImageForPolicyBlockingReport", () => {
     ).resolves.toEqual({
       ok: false,
       status: "image_selection_error",
+      messageSource: "selector",
       message: "Supply image_registry and image_repository together.",
     });
     expect(fetchMock).not.toHaveBeenCalled();

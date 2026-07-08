@@ -462,6 +462,31 @@ describe("runPolicyBlockingVulnerabilities", () => {
     }
   });
 
+  it("does not trust an ambiguity-shaped backend error", async () => {
+    const token = "AKIAEXAMPLESECRET1234";
+    const fetchMock = vi.fn().mockRejectedValue(
+      new Error(
+        `Newest analyzed image is ambiguous: 2 digests share timestamp ${token}.`,
+      ),
+    );
+
+    const result = await runPolicyBlockingVulnerabilities(
+      { image_reference: "docker.io/library/nginx:latest" },
+      { connection: testConnection(), fetch: fetchMock },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(textPayload(result))).toMatchObject({
+      error: true,
+      message: "Image selection failed before policy evaluation.",
+      policyRemediationStatus: "image_selection_error",
+    });
+    expect(textPayload(result)).not.toContain(token);
+    for (const call of vi.mocked(safeLog.logStderrLine).mock.calls) {
+      expect(call[0]).not.toContain(token);
+    }
+  });
+
   it.each([
     {
       args: { image_reference: "docker.io/library/nginx:latest" },

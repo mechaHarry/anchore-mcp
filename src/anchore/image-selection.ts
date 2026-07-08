@@ -29,9 +29,16 @@ export type SelectedImage = {
   analysisTimestamp?: string;
 };
 
+export type ImageSelectionError = {
+  ok: false;
+  status: "image_selection_error";
+  message: string;
+  messageSource: "selector" | "backend";
+};
+
 export type ImageSelectionResult =
   | { ok: true; selectedImage: SelectedImage }
-  | { ok: false; status: "image_selection_error"; message: string };
+  | ImageSelectionError;
 
 type TimestampedCandidate = SelectedImage & {
   parsedTimestamp: number;
@@ -63,8 +70,22 @@ const TIMESTAMP_KEYS = [
   "createdAt",
 ] as const;
 
-function imageSelectionError(message: string): ImageSelectionResult {
-  return { ok: false, status: "image_selection_error", message };
+function imageSelectionError(message: string): ImageSelectionError {
+  return {
+    ok: false,
+    status: "image_selection_error",
+    message,
+    messageSource: "selector",
+  };
+}
+
+function backendImageSelectionError(message: string): ImageSelectionError {
+  return {
+    ok: false,
+    status: "image_selection_error",
+    message,
+    messageSource: "backend",
+  };
 }
 
 function stringField(row: Record<string, unknown>, key: string): string | undefined {
@@ -310,7 +331,7 @@ async function listImages(
   params: URLSearchParams,
   connection: ResolvedAnchoreConnection,
   options?: AnchoreClientOptions,
-): Promise<ImageSelectionResult | unknown[]> {
+): Promise<ImageSelectionError | unknown[]> {
   const client = createAnchoreClient(connection, options);
   try {
     const out = await fetchAllListImagesPages(
@@ -329,7 +350,7 @@ async function listImages(
   } catch (e) {
     const message =
       e instanceof Error ? e.message : "Failed to list images for image selection.";
-    return imageSelectionError(message);
+    return backendImageSelectionError(message);
   }
 }
 
