@@ -137,9 +137,12 @@ From the repository where `.codex/config.toml` lives:
 Inspect only non-secret fields:
 
 ```bash
-codex mcp get anchore-mcp --json | jq '{name, enabled, transport: {type: .transport.type, command: .transport.command, args: .transport.args, cwd: .transport.cwd}, approval_mode, tools}'
+codex mcp get anchore-mcp --json | jq '{name, enabled, disabled_reason, transport: {type: .transport.type, command: .transport.command, args: .transport.args, cwd: .transport.cwd}, enabled_tools, disabled_tools, startup_timeout_sec, tool_timeout_sec}'
 ```
 
+This filtered command cannot verify per-tool `approval_mode`; Codex 0.142.5
+does not expose it in `mcp get` JSON. Inspect the specific tool stanza in your
+trusted TOML directly, without printing adjacent environment configuration.
 Never print or paste raw MCP configuration or environment fields; they may
 contain tokens.
 
@@ -149,12 +152,17 @@ Expected shape:
 {
   "name": "anchore-mcp",
   "enabled": true,
+  "disabled_reason": null,
   "transport": {
     "type": "stdio",
     "command": "/absolute/path/to/node",
     "args": ["/absolute/path/to/your-repo/.codex/anchore-mcp-launcher.mjs"],
     "cwd": "/absolute/path/to/your-repo"
-  }
+  },
+  "enabled_tools": null,
+  "disabled_tools": null,
+  "startup_timeout_sec": 20.0,
+  "tool_timeout_sec": 300.0
 }
 ```
 

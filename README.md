@@ -72,10 +72,10 @@ Before restarting Codex, verify paths without reading credentials:
 ```bash
 test -x /absolute/path/to/node
 test -f /absolute/path/to/anchore-mcp/dist/index.js
-codex mcp get anchore-mcp --json | jq '{name, enabled, transport: {type: .transport.type, command: .transport.command, args: .transport.args, cwd: .transport.cwd}, approval_mode, tools}'
+codex mcp get anchore-mcp --json | jq '{name, enabled, disabled_reason, transport: {type: .transport.type, command: .transport.command, args: .transport.args, cwd: .transport.cwd}, enabled_tools, disabled_tools, startup_timeout_sec, tool_timeout_sec}'
 ```
 
-Never print or paste raw MCP configuration or environment fields; they may contain tokens. A prompt for the repository-smart lookup is:
+This filtered command cannot verify per-tool `approval_mode`; Codex 0.142.5 does not expose it in `mcp get` JSON. Inspect the specific tool stanza in your trusted TOML directly, without printing adjacent environment configuration. Never print or paste raw MCP configuration or environment fields; they may contain tokens. A prompt for the repository-smart lookup is:
 
 ```text
 Use the anchore-mcp MCP server. Call anchore_policy_blocking_vulnerabilities
