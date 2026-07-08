@@ -12,6 +12,7 @@ implementation_commits:
   - 829c7e6
   - acd38bb
   - 76587cd
+  - 91a9ec7
 documentation_commits:
   - 68d5289
   - dd5a31f
@@ -327,3 +328,9 @@ original four tasks. It is audit history, not an executable queue.
 
   Keep the requested reference in disambiguation hints and preserve the exact
   evidence signal while limiting optional metadata.
+
+- [x] **Unify policy exact-reference evidence verification** (`91a9ec7`)
+
+  Route policy exact-reference selection through the shared bounded evidence
+  verifier. Reject conflicting reference aliases and fail closed when evidence
+  overflow prevents a complete proof.
