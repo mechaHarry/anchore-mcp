@@ -10,7 +10,7 @@ import { fetchOpenApiDocument } from "./openapi-fetch.js";
  * in openapi.json — if not, operators can request extending this fallback list.
  */
 export const FALLBACK_LIST_IMAGES_QUERY_KEYS = [
-  "fulltag",
+  "full_tag",
   "vulnerability_id",
   "limit",
   "page",
@@ -18,9 +18,6 @@ export const FALLBACK_LIST_IMAGES_QUERY_KEYS = [
   "page_token",
   "name",
   "image_digest",
-  "registry",
-  "repository",
-  "repo",
   "tag",
 ] as const;
 
@@ -106,8 +103,8 @@ export type ListImagesQueryInput = {
 };
 
 /**
- * Build `URLSearchParams` for GET /v1|/v2/images. Explicit `fulltag` / `vulnerability_id`
- * win over duplicate keys in `list_query`.
+ * Build `URLSearchParams` for GET /v1|/v2/images. Public `fulltag` is translated to
+ * the official wire key `full_tag`; explicit filters win over duplicate `list_query` keys.
  */
 export function mergeListImagesQueryParams(
   args: ListImagesQueryInput,
@@ -117,7 +114,7 @@ export function mergeListImagesQueryParams(
   const rejectedKeys: string[] = [];
 
   if (args.fulltag?.trim()) {
-    params.set("fulltag", args.fulltag.trim());
+    params.set("full_tag", args.fulltag.trim());
   }
   if (args.vulnerability_id?.trim()) {
     params.set("vulnerability_id", args.vulnerability_id.trim());
@@ -139,7 +136,7 @@ export function mergeListImagesQueryParams(
       rejectedKeys.push(k);
       continue;
     }
-    if (k === "fulltag" && args.fulltag?.trim()) {
+    if (k === "full_tag" && args.fulltag?.trim()) {
       continue;
     }
     if (k === "vulnerability_id" && args.vulnerability_id?.trim()) {

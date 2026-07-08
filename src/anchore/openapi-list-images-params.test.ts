@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  FALLBACK_LIST_IMAGES_QUERY_KEYS,
   extractListImagesQueryParameterNames,
   mergeListImagesQueryParams,
 } from "./openapi-list-images-params.js";
@@ -28,6 +29,14 @@ describe("extractListImagesQueryParameterNames", () => {
 });
 
 describe("mergeListImagesQueryParams", () => {
+  it("uses only official conservative fallback filters", () => {
+    expect(FALLBACK_LIST_IMAGES_QUERY_KEYS).toContain("full_tag");
+    expect(FALLBACK_LIST_IMAGES_QUERY_KEYS).not.toContain("fulltag");
+    expect(FALLBACK_LIST_IMAGES_QUERY_KEYS).not.toContain("registry");
+    expect(FALLBACK_LIST_IMAGES_QUERY_KEYS).not.toContain("repository");
+    expect(FALLBACK_LIST_IMAGES_QUERY_KEYS).not.toContain("repo");
+  });
+
   it("merges allowlisted list_query keys", () => {
     const allow = new Set(["fulltag", "name", "limit"]);
     const { params, rejectedKeys } = mergeListImagesQueryParams(
@@ -52,15 +61,16 @@ describe("mergeListImagesQueryParams", () => {
     expect(rejectedKeys).toContain("not_allowed");
   });
 
-  it("prefers explicit fulltag over list_query fulltag", () => {
-    const allow = new Set(["fulltag"]);
+  it("maps explicit fulltag input to full_tag and prefers it over list_query", () => {
+    const allow = new Set(["full_tag"]);
     const { params } = mergeListImagesQueryParams(
       {
         fulltag: "docker.io/a:b",
-        list_query: { fulltag: "docker.io/c:d" },
+        list_query: { full_tag: "docker.io/c:d" },
       },
       allow,
     );
-    expect(params.get("fulltag")).toBe("docker.io/a:b");
+    expect(params.get("full_tag")).toBe("docker.io/a:b");
+    expect(params.has("fulltag")).toBe(false);
   });
 });

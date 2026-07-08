@@ -177,7 +177,8 @@ describe("runListImages", () => {
       { connection, fetch: fetchMock },
     );
     const url = fetchMock.mock.calls[0][0] as string;
-    expect(url).toContain("fulltag=");
+    expect(url).toContain("full_tag=");
+    expect(url).not.toContain("fulltag=");
     expect(url).toContain("vulnerability_id=");
   });
 

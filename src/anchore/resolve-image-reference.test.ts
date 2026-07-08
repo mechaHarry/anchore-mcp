@@ -27,7 +27,8 @@ describe("resolveImageReference", () => {
     const d = `sha256:${"a".repeat(64)}`;
     const out = await resolveImageReference(connection, FQ_REF, { fetch: fetchMock });
     expect(out).toEqual({ kind: "ok", digest: d });
-    expect(fetchMock.mock.calls[0][0]).toContain("fulltag=");
+    expect(fetchMock.mock.calls[0][0]).toContain("full_tag=");
+    expect(fetchMock.mock.calls[0][0]).not.toContain("fulltag=");
   });
 
   it("dedupes multiple rows with the same digest", async () => {

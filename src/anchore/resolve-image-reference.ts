@@ -51,7 +51,7 @@ function tagHintsFromRow(row: unknown): string[] | undefined {
 }
 
 /**
- * Resolve a full image reference to a single digest using GET /images?fulltag=… (paginated).
+ * Resolve a full image reference to a single digest using GET /images?full_tag=… (paginated).
  */
 export async function resolveImageReference(
   connection: ResolvedAnchoreConnection,
@@ -66,7 +66,7 @@ export async function resolveImageReference(
   }
 
   const params = new URLSearchParams();
-  params.set("fulltag", imageReference.trim());
+  params.set("full_tag", imageReference.trim());
 
   const { listCaps: capsOverride, ...clientOptions } = options ?? {};
   const client = createAnchoreClient(connection, clientOptions);
@@ -93,7 +93,7 @@ export async function resolveImageReference(
       kind: "enumeration_incomplete",
       reason:
         incompleteReason ??
-        `Image list enumeration incomplete after ${pagesFetched} page(s). Narrow fulltag or raise caps.`,
+        `Image list enumeration incomplete after ${pagesFetched} page(s). Narrow full_tag or raise caps.`,
     };
   }
 
