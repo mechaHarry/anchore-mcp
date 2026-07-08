@@ -37,12 +37,22 @@ listing output free of credentials.
 
 ```toml
 [mcp_servers.anchore-mcp]
-command = "node"
+command = "/absolute/path/to/node"
 args = ["/absolute/path/to/your-repo/.codex/anchore-mcp-launcher.mjs"]
+cwd = "/absolute/path/to/your-repo"
 enabled = true
 startup_timeout_sec = 20
 tool_timeout_sec = 300
+
+# Optional, recommended for noninteractive use of this read-only tool.
+[mcp_servers.anchore-mcp.tools.anchore_policy_blocking_vulnerabilities]
+approval_mode = "approve"
 ```
+
+`command` must be an executable Node binary or launcher; never set it to
+`dist/index.js`. `command = "node"` works only when the MCP child process's
+`PATH` contains Node, so an absolute Node path is more reliable. Keep `args`
+and `cwd` aligned with the current clone rather than an old or moved checkout.
 
 ## `.codex/anchore-mcp.env.json`
 
@@ -109,14 +119,29 @@ pnpm run build
 ```
 
 `serverPath` in the launcher must point at the built `dist/index.js`.
+Run `pnpm run build` after source changes so that file is current.
+
+Validate the executable, launcher, and server paths without reading the secret
+file:
+
+```bash
+test -x /absolute/path/to/node
+test -f /absolute/path/to/your-repo/.codex/anchore-mcp-launcher.mjs
+test -f /absolute/path/to/anchore-mcp/dist/index.js
+```
 
 ## Verify Codex Sees It
 
 From the repository where `.codex/config.toml` lives:
 
+Inspect only non-secret fields:
+
 ```bash
-codex mcp list --json
+codex mcp get anchore-mcp --json | jq '{name, enabled, transport: {type: .transport.type, command: .transport.command, args: .transport.args, cwd: .transport.cwd}, approval_mode, tools}'
 ```
+
+Never print or paste raw MCP configuration or environment fields; they may
+contain tokens.
 
 Expected shape:
 
@@ -126,9 +151,9 @@ Expected shape:
   "enabled": true,
   "transport": {
     "type": "stdio",
-    "command": "node",
+    "command": "/absolute/path/to/node",
     "args": ["/absolute/path/to/your-repo/.codex/anchore-mcp-launcher.mjs"],
-    "env": null
+    "cwd": "/absolute/path/to/your-repo"
   }
 }
 ```

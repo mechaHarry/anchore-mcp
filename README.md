@@ -45,6 +45,45 @@ Need **multiple** Anchore deployments? Add **multiple** MCP server entries in yo
 
 For a repo-local Codex setup that other agents can reuse without committing secrets, see [examples/codex-agent-setup](examples/codex-agent-setup/README.md).
 
+### Codex stdio configuration
+
+Codex must launch this server as a local **stdio** process. Use an executable Node binary as `command`, and pass this clone's built server as an argument:
+
+```toml
+[mcp_servers.anchore-mcp]
+command = "/absolute/path/to/node"
+args = ["/absolute/path/to/anchore-mcp/dist/index.js"]
+cwd = "/absolute/path/to/anchore-mcp"
+enabled = true
+startup_timeout_sec = 20
+tool_timeout_sec = 300
+
+# Optional, recommended for noninteractive use of this read-only tool.
+[mcp_servers.anchore-mcp.tools.anchore_policy_blocking_vulnerabilities]
+approval_mode = "approve"
+```
+
+Do **not** set `command` to `dist/index.js`: `command` must be an executable Node binary or launcher. `command = "node"` works only when the MCP child process's `PATH` contains Node; an absolute Node path is more reliable. `args` and `cwd` must point to the current clone, not an old or moved checkout. Run `pnpm run build` after source changes so `dist/index.js` is current.
+
+Keep credentials out of committed TOML. The [repo-local Codex setup example](examples/codex-agent-setup/README.md) shows a host-managed, gitignored secret-file pattern.
+
+Before restarting Codex, verify paths without reading credentials:
+
+```bash
+test -x /absolute/path/to/node
+test -f /absolute/path/to/anchore-mcp/dist/index.js
+codex mcp get anchore-mcp --json | jq '{name, enabled, transport: {type: .transport.type, command: .transport.command, args: .transport.args, cwd: .transport.cwd}, approval_mode, tools}'
+```
+
+Never print or paste raw MCP configuration or environment fields; they may contain tokens. A prompt for the repository-smart lookup is:
+
+```text
+Use the anchore-mcp MCP server. Call anchore_policy_blocking_vulnerabilities
+with image_registry="registry.example.com" and image_repository="team/app".
+Return the selected image and compact policy-blocking vulnerability summary.
+Do not inspect or print MCP configuration or environment values.
+```
+
 ### Image digest vs reference
 
 Anchore’s per-image HTTP routes use the **digest** in the path (`/v2/images/{digest}/…`). For convenience, digest-keyed tools also accept **`image_reference`**: a fully qualified tagged image string (`registry/repository:tag`, e.g. `docker.io/library/nginx:latest`). With the default v2 API, the MCP queries `GET /v2/images?full_tag=…`; legacy v1 uses `GET /v1/images?fulltag=…`. The backend filter is only a narrowing hint: the MCP uses a digest only when the returned row contains exact local evidence for the requested reference. If bounded evidence inspection cannot finish, resolution reports `enumeration_incomplete` instead of `no_match`. Short names like `nginx:latest` are rejected; use a registry-qualified reference.
@@ -91,7 +130,7 @@ Cursor’s MCP UI often shows **URL** and **headers** first. Those fields are fo
 Configure a **command-based** entry instead (names and paths differ by Cursor version):
 
 1. Open MCP settings and add a server that runs a **shell command** (sometimes labeled “stdio”, “local”, or “command”).
-2. **Command:** `node` (or the full path to your Node binary).
+2. **Command:** the absolute path to your Node binary. A bare `node` works only when the MCP child process's `PATH` contains Node.
 3. **Arguments:** absolute path to `dist/index.js` in your clone of this repo, e.g. `/path/to/anchore-mcp/dist/index.js`.
 4. **Environment variables:** set `ANCHORE_URL`, `ANCHORE_TOKEN`, and optionally `ANCHORE_ACCOUNT`.
 
@@ -101,7 +140,7 @@ Example fragment for a JSON-style MCP config:
 {
   "mcpServers": {
     "anchore-mcp": {
-      "command": "node",
+      "command": "/absolute/path/to/node",
       "args": ["/absolute/path/to/anchore-mcp/dist/index.js"],
       "env": {
         "ANCHORE_URL": "https://anchore.example.com",
