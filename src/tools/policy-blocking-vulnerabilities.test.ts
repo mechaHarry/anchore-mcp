@@ -558,6 +558,7 @@ describe("runPolicyBlockingVulnerabilities", () => {
         okList([
           {
             image_digest: "sha256:selected",
+            full_tag: reference,
             analyzed_at: "2026-04-24T00:00:00Z",
             image_detail: [
               {

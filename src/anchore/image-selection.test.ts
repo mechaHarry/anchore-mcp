@@ -64,7 +64,8 @@ describe("selectImageForPolicyBlockingReport", () => {
         analysisTimestamp: "2026-04-02T00:00:00Z",
       },
     });
-    expect(fetchMock.mock.calls[0][0]).toContain("fulltag=");
+    expect(fetchMock.mock.calls[0][0]).toContain("full_tag=");
+    expect(fetchMock.mock.calls[0][0]).not.toContain("fulltag=");
     expect(fetchMock.mock.calls[0][0]).toContain(encodeURIComponent(requested));
   });
 
@@ -139,21 +140,19 @@ describe("selectImageForPolicyBlockingReport", () => {
     const fetchMock = vi.fn().mockResolvedValue(
       okList([
         {
-          imageDigest: "sha256:old",
-          analyzed_at: "2026-04-01T00:00:00Z",
-          image_detail: [{ registry, repo: repository, tag: "1.0" }],
+          image_digest: "sha256:old",
+          full_tag: `${qualifiedRepository}:1.0`,
+          analyzed_at: 1_775_001_600,
         },
         {
-          imageDigest: "sha256:new",
-          analyzed_at: "2026-04-03T00:00:00Z",
-          image_detail: [{ registry, repo: repository, tag: "2.0" }],
+          image_digest: "sha256:new",
+          full_tag: `${qualifiedRepository}:2.0`,
+          analyzed_at: 1_775_174_400_000,
         },
         {
-          imageDigest: "sha256:wrong-registry",
-          analyzed_at: "2026-04-04T00:00:00Z",
-          image_detail: [
-            { registry: "other.example.com", repo: repository, tag: "9.0" },
-          ],
+          image_digest: "sha256:wrong-registry",
+          full_tag: `other.example.com/${repository}:9.0`,
+          analyzed_at: 1_775_260_800_000,
         },
       ]),
     );
@@ -170,21 +169,139 @@ describe("selectImageForPolicyBlockingReport", () => {
         digest: "sha256:new",
         reference: "registry.example.com/team/app:2.0",
         repository: qualifiedRepository,
-        analysisTimestamp: "2026-04-03T00:00:00Z",
+        analysisTimestamp: "2026-04-03T00:00:00.000Z",
       },
     });
     const requestUrl = fetchMock.mock.calls[0][0] as string;
+    expect(requestUrl).toContain("/v2/summaries/image-tags?");
+    expect(requestUrl).not.toContain("/v2/images?");
     expect(requestUrl).toContain("registry=registry.example.com");
     expect(requestUrl).toContain("repository=team%2Fapp");
+    expect(requestUrl).toContain("analysis_status=analyzed");
   });
 
-  it("matches exact components from alternate nested fields and full references", async () => {
+  it("continues image-tag summary pages while total_rows reports more rows", async () => {
+    const registry = "registry.example.com";
+    const repository = "team/app";
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      const page = new URL(url).searchParams.get("page");
+      if (page === "1") {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              items: [
+                {
+                  image_digest: "sha256:old",
+                  full_tag: `${registry}/${repository}:1`,
+                  analyzed_at: "2026-04-01T00:00:00Z",
+                },
+              ],
+              total_rows: 2,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            items: [
+              {
+                image_digest: "sha256:new",
+                full_tag: `${registry}/${repository}:2`,
+                analyzed_at: "2026-04-03T00:00:00Z",
+              },
+            ],
+            total_rows: 2,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    });
+
+    const result = await selectImageForPolicyBlockingReport(
+      { image_registry: registry, image_repository: repository },
+      testConn(),
+      { fetch: fetchMock },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      ok: true,
+      selectedImage: { digest: "sha256:new" },
+    });
+  });
+
+  it("treats summary full_tag as authoritative when aliases conflict", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          image_digest: "sha256:conflict",
+          full_tag: "other.example.com/team/app:latest",
+          image_tag: "registry.example.com/team/app:latest",
+          analyzed_at: "2026-04-03T00:00:00Z",
+        },
+      ]),
+    );
+
+    const result = await selectImageForPolicyBlockingReport(
+      {
+        image_registry: "registry.example.com",
+        image_repository: "team/app",
+      },
+      testConn(),
+      { fetch: fetchMock },
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: "image_selection_error",
+      messageSource: "selector",
+    });
+  });
+
+  it("returns a provenance-safe selector error when summary caps prevent completion", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              image_digest: "sha256:first",
+              full_tag: "registry.example.com/team/app:1",
+              analyzed_at: "2026-04-01T00:00:00Z",
+            },
+          ],
+          total_rows: 2,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const result = await selectImageForPolicyBlockingReport(
+      {
+        image_registry: "registry.example.com",
+        image_repository: "team/app",
+      },
+      testConn(),
+      { fetch: fetchMock, listCaps: { maxPages: 1, maxItems: 1 } },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      status: "image_selection_error",
+      messageSource: "selector",
+      message: "Stopped after collecting 1 image tag summary row(s) (maxItems cap).",
+    });
+  });
+
+  it("uses official full_tag when alternate nested fields are also present", async () => {
     const registry = "registry.example.com";
     const repository = "team/app";
     const fetchMock = vi.fn().mockResolvedValue(
       okList([
         {
           imageDigest: "sha256:matched-later-repo-field",
+          full_tag: "registry.example.com/team/app:2.0",
           analyzed_at: "2026-04-03T00:00:00Z",
           imageDetails: [
             {
@@ -196,6 +313,7 @@ describe("selectImageForPolicyBlockingReport", () => {
         },
         {
           imageDigest: "sha256:matched-derived-reference",
+          full_tag: "registry.example.com/team/app:3.0",
           analyzed_at: "2026-04-04T00:00:00Z",
           imageDetails: [
             {
@@ -257,13 +375,14 @@ describe("selectImageForPolicyBlockingReport", () => {
     expect(result).toMatchObject({ ok: false, status: "image_selection_error" });
   });
 
-  it("matches repository metadata from nested v2 image_detail rows", async () => {
+  it("selects summary rows with official full_tag alongside nested metadata", async () => {
     const registry = "containers.example.com";
     const repository = "psf/help-site";
     const fetchMock = vi.fn().mockResolvedValue(
       okList([
         {
           image_digest: "sha256:old",
+          full_tag: "containers.example.com/psf/help-site:3",
           analyzed_at: "2026-04-23T00:00:00Z",
           image_detail: [
             {
@@ -276,6 +395,7 @@ describe("selectImageForPolicyBlockingReport", () => {
         },
         {
           image_digest: "sha256:new",
+          full_tag: "containers.example.com/psf/help-site:4",
           analyzed_at: "2026-04-24T00:00:00Z",
           image_detail: [
             {
@@ -347,6 +467,7 @@ describe("selectImageForPolicyBlockingReport", () => {
       okList([
         {
           image_digest: "sha256:a",
+          full_tag: "registry.example.com/team/app:1.0",
           analyzed_at: "2026-04-02T00:00:00Z",
           image_detail: [
             { registry: "registry.example.com", repo: "team/app", tag: "1.0" },
@@ -354,6 +475,7 @@ describe("selectImageForPolicyBlockingReport", () => {
         },
         {
           image_digest: "sha256:b",
+          full_tag: "registry.example.com/team/app:2.0",
           analyzed_at: "2026-04-02T00:00:00Z",
           image_detail: [
             { registry: "registry.example.com", repo: "team/app", tag: "2.0" },
@@ -404,6 +526,7 @@ describe("selectImageForPolicyBlockingReport", () => {
       okList([
         {
           image_digest: "sha256:a",
+          full_tag: "registry.example.com/team/app:1.0",
           analyzed_at: "not-a-date",
           image_detail: [
             { registry: "registry.example.com", repo: "team/app", tag: "1.0" },
@@ -411,6 +534,7 @@ describe("selectImageForPolicyBlockingReport", () => {
         },
         {
           image_digest: "sha256:b",
+          full_tag: "registry.example.com/team/app:2.0",
           image_detail: [
             { registry: "registry.example.com", repo: "team/app", tag: "2.0" },
           ],
@@ -430,6 +554,74 @@ describe("selectImageForPolicyBlockingReport", () => {
     expect(result).toMatchObject({
       ok: false,
       status: "image_selection_error",
+    });
+  });
+
+  it("rejects an out-of-range numeric analysis timestamp", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          image_digest: "sha256:invalid-time",
+          full_tag: "registry.example.com/team/app:bad",
+          analyzed_at: Number.MAX_VALUE,
+        },
+        {
+          image_digest: "sha256:valid-time",
+          full_tag: "registry.example.com/team/app:good",
+          analyzed_at: 1_775_174_400,
+        },
+      ]),
+    );
+
+    const result = await selectImageForPolicyBlockingReport(
+      {
+        image_registry: "registry.example.com",
+        image_repository: "team/app",
+      },
+      testConn(),
+      { fetch: fetchMock },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      selectedImage: {
+        digest: "sha256:valid-time",
+        analysisTimestamp: "2026-04-03T00:00:00.000Z",
+      },
+    });
+  });
+
+  it("supports epoch milliseconds before 2001 without treating them as seconds", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okList([
+        {
+          image_digest: "sha256:iso-old",
+          full_tag: "registry.example.com/team/app:old",
+          analyzed_at: "1999-01-01T00:00:00Z",
+        },
+        {
+          image_digest: "sha256:millis-new",
+          full_tag: "registry.example.com/team/app:new",
+          analyzed_at: 946_684_800_000,
+        },
+      ]),
+    );
+
+    const result = await selectImageForPolicyBlockingReport(
+      {
+        image_registry: "registry.example.com",
+        image_repository: "team/app",
+      },
+      testConn(),
+      { fetch: fetchMock },
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      selectedImage: {
+        digest: "sha256:millis-new",
+        analysisTimestamp: "2000-01-01T00:00:00.000Z",
+      },
     });
   });
 

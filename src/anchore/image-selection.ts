@@ -8,7 +8,9 @@ import {
 import {
   DEFAULT_RESOLUTION_LIST_CAPS,
   fetchAllListImagesPages,
+  type ListImagesPageCaps,
 } from "./list-images-pages.js";
+import { fetchAllImageTagSummaryPages } from "./image-tag-summary-pages.js";
 
 export type PolicyBlockingImageLocator = {
   image_digest?: string;
@@ -40,6 +42,11 @@ export type ImageSelectionResult =
   | { ok: true; selectedImage: SelectedImage }
   | ImageSelectionError;
 
+type ImageSelectionOptions = AnchoreClientOptions & {
+  /** Test/operator override; defaults remain deliberately bounded. */
+  listCaps?: ListImagesPageCaps;
+};
+
 type TimestampedCandidate = SelectedImage & {
   parsedTimestamp: number;
 };
@@ -69,6 +76,11 @@ const TIMESTAMP_KEYS = [
   "created_at",
   "createdAt",
 ] as const;
+
+// Analysis timestamps beyond year 2286 are not credible epoch seconds; larger
+// magnitudes are interpreted as epoch milliseconds. This also supports legacy
+// millisecond values before the common 1e12 heuristic boundary.
+const MAX_PLAUSIBLE_EPOCH_SECONDS = 10_000_000_000;
 
 function imageSelectionError(message: string): ImageSelectionError {
   return {
@@ -160,13 +172,22 @@ function timestampFromRow(
   row: Record<string, unknown>,
 ): { value: string; parsed: number } | undefined {
   for (const key of TIMESTAMP_KEYS) {
-    const value = stringField(row, key);
-    if (value === undefined) {
-      continue;
+    const raw = row[key];
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      const milliseconds =
+        Math.abs(raw) <= MAX_PLAUSIBLE_EPOCH_SECONDS ? raw * 1_000 : raw;
+      const date = new Date(milliseconds);
+      const parsed = date.getTime();
+      if (Number.isFinite(parsed)) {
+        return { value: date.toISOString(), parsed };
+      }
     }
-    const parsed = Date.parse(value);
-    if (Number.isFinite(parsed)) {
-      return { value, parsed };
+    if (typeof raw === "string" && raw.trim().length > 0) {
+      const value = raw.trim();
+      const parsed = Date.parse(value);
+      if (Number.isFinite(parsed)) {
+        return { value, parsed };
+      }
     }
   }
   return undefined;
@@ -242,52 +263,6 @@ function locatorFromReference(reference: string): RepositoryLocator | undefined 
   };
 }
 
-function repositoryLocatorsFromObject(object: Record<string, unknown>): RepositoryLocator[] {
-  const locators: RepositoryLocator[] = [];
-  const componentKeyPairs = [
-    ["registry", "repo"],
-    ["registry", "repository"],
-    ["image_registry", "image_repository"],
-    ["imageRegistry", "imageRepository"],
-  ] as const;
-  for (const [registryKey, repositoryKey] of componentKeyPairs) {
-    const registry = stringField(object, registryKey);
-    const repository = stringField(object, repositoryKey);
-    if (registry !== undefined && repository !== undefined) {
-      locators.push({ registry, repository });
-    }
-  }
-  for (const reference of detailReferences(object)) {
-    const locator = locatorFromReference(reference);
-    if (locator !== undefined) {
-      locators.push(locator);
-    }
-  }
-  return locators;
-}
-
-function repositoryLocatorsFromRow(row: Record<string, unknown>): RepositoryLocator[] {
-  const locators = repositoryLocatorsFromObject(row);
-  for (const detail of imageDetailRows(row)) {
-    locators.push(...repositoryLocatorsFromObject(detail));
-  }
-  for (const reference of referencesFromRow(row)) {
-    const locator = locatorFromReference(reference);
-    if (locator !== undefined) {
-      locators.push(locator);
-    }
-  }
-  const seen = new Set<string>();
-  return locators.filter((locator) => {
-    const key = `${locator.registry}\u0000${locator.repository}`;
-    if (seen.has(key)) {
-      return false;
-    }
-    seen.add(key);
-    return true;
-  });
-}
-
 function sameRepositoryLocator(a: RepositoryLocator, b: RepositoryLocator): boolean {
   return a.registry === b.registry && a.repository === b.repository;
 }
@@ -330,15 +305,16 @@ function selectNewest(candidates: TimestampedCandidate[]): ImageSelectionResult 
 async function listImages(
   params: URLSearchParams,
   connection: ResolvedAnchoreConnection,
-  options?: AnchoreClientOptions,
+  options?: ImageSelectionOptions,
 ): Promise<ImageSelectionError | unknown[]> {
-  const client = createAnchoreClient(connection, options);
+  const { listCaps, ...clientOptions } = options ?? {};
+  const client = createAnchoreClient(connection, clientOptions);
   try {
     const out = await fetchAllListImagesPages(
       client,
       connection,
       params,
-      DEFAULT_RESOLUTION_LIST_CAPS,
+      listCaps ?? DEFAULT_RESOLUTION_LIST_CAPS,
     );
     if (out.enumerationIncomplete) {
       return imageSelectionError(
@@ -354,10 +330,38 @@ async function listImages(
   }
 }
 
+async function listImageTagSummaries(
+  params: URLSearchParams,
+  connection: ResolvedAnchoreConnection,
+  options?: ImageSelectionOptions,
+): Promise<ImageSelectionError | unknown[]> {
+  const { listCaps, ...clientOptions } = options ?? {};
+  const client = createAnchoreClient(connection, clientOptions);
+  try {
+    const out = await fetchAllImageTagSummaryPages(
+      client,
+      connection,
+      params,
+      listCaps ?? DEFAULT_RESOLUTION_LIST_CAPS,
+    );
+    if (out.enumerationIncomplete) {
+      return imageSelectionError(
+        out.incompleteReason ??
+          `Image tag summary enumeration incomplete after ${out.pagesFetched} page(s).`,
+      );
+    }
+    return out.rows;
+  } catch (e) {
+    const message =
+      e instanceof Error ? e.message : "Failed to list image tag summaries for image selection.";
+    return backendImageSelectionError(message);
+  }
+}
+
 async function selectByReference(
   imageReference: string,
   connection: ResolvedAnchoreConnection,
-  options?: AnchoreClientOptions,
+  options?: ImageSelectionOptions,
 ): Promise<ImageSelectionResult> {
   const validated = validateFullImageReference(imageReference);
   if (!validated.ok) {
@@ -366,7 +370,7 @@ async function selectByReference(
 
   const reference = imageReference.trim();
   const params = new URLSearchParams();
-  params.set("fulltag", reference);
+  params.set("full_tag", reference);
 
   const rows = await listImages(params, connection, options);
   if (!Array.isArray(rows)) {
@@ -404,7 +408,7 @@ async function selectByRepository(
   imageRegistry: string,
   imageRepository: string,
   connection: ResolvedAnchoreConnection,
-  options?: AnchoreClientOptions,
+  options?: ImageSelectionOptions,
 ): Promise<ImageSelectionResult> {
   const validatedRegistry = validateRegistry(imageRegistry);
   if (!validatedRegistry.ok) {
@@ -423,8 +427,9 @@ async function selectByRepository(
   const params = new URLSearchParams();
   params.set("registry", locator.registry);
   params.set("repository", locator.repository);
+  params.set("analysis_status", "analyzed");
 
-  const rows = await listImages(params, connection, options);
+  const rows = await listImageTagSummaries(params, connection, options);
   if (!Array.isArray(rows)) {
     return rows;
   }
@@ -435,9 +440,8 @@ async function selectByRepository(
       continue;
     }
     const objectRow = row as Record<string, unknown>;
-    if (!repositoryLocatorsFromRow(objectRow).some((candidate) =>
-      sameRepositoryLocator(candidate, locator),
-    )) {
+    const reference = stringField(objectRow, "full_tag");
+    if (reference === undefined || !referenceMatchesLocator(reference, locator)) {
       continue;
     }
     const digest = digestFromImageRow(objectRow);
@@ -445,12 +449,9 @@ async function selectByRepository(
     if (digest === undefined || timestamp === undefined) {
       continue;
     }
-    const reference = referencesFromRow(objectRow).find((candidate) =>
-      referenceMatchesLocator(candidate, locator),
-    );
     candidates.push({
       digest,
-      ...(reference !== undefined ? { reference } : {}),
+      reference,
       repository: qualifiedRepository,
       analysisTimestamp: timestamp.value,
       parsedTimestamp: timestamp.parsed,
@@ -463,7 +464,7 @@ async function selectByRepository(
 export async function selectImageForPolicyBlockingReport(
   args: PolicyBlockingImageLocator,
   connection: ResolvedAnchoreConnection,
-  options?: AnchoreClientOptions,
+  options?: ImageSelectionOptions,
 ): Promise<ImageSelectionResult> {
   const hasDigest = args.image_digest !== undefined;
   const hasReference = args.image_reference !== undefined;

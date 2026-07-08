@@ -10,6 +10,16 @@ export function imagesListPath(
   return qs ? `${base}?${qs}` : base;
 }
 
+/** Image tag summaries used for registry/repository selection. */
+export function imageTagSummariesPath(
+  version: AnchoreApiVersion,
+  query: URLSearchParams,
+): string {
+  const base = `/${version}/summaries/image-tags`;
+  const qs = query.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
 /**
  * V1: GET /v1/images/{digest}/vulnerabilities
  * V2: GET /v2/images/{digest}/vuln/all — see deployment `/v2/openapi.json`
