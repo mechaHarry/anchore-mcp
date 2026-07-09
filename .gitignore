@@ -4,6 +4,15 @@ node_modules/
 dist/
 package-lock.json
 .pnpm-store/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+htmlcov/
+build/
+*.egg-info/
+__pycache__/
 *.log
 .DS_Store
 .env

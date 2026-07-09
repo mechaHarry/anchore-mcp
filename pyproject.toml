@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "anchore-mcp"
+version = "4.0.0"
+description = "Read-only MCP server for Anchore Enterprise"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastmcp==3.4.3",
+  "httpx[http2]>=0.28.1,<0.29",
+  "pydantic>=2.11,<3",
+]
+
+[project.scripts]
+anchore-mcp = "anchore_mcp.__main__:main"
+
+[dependency-groups]
+dev = [
+  "build>=1.3,<2",
+  "hypothesis>=6.135,<7",
+  "pip-audit>=2.9,<3",
+  "pyright>=1.1.403,<2",
+  "pytest>=8.4,<9",
+  "pytest-asyncio>=1,<2",
+  "pytest-cov>=6.2,<7",
+  "respx>=0.22,<0.23",
+  "ruff>=0.12,<0.13",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/anchore_mcp"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-markers"
+markers = [
+  "live: tests that call a live Anchore deployment",
+  "performance: performance and load tests",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["anchore_mcp"]
+
+[tool.coverage.report]
+fail_under = 90
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.pyright]
+typeCheckingMode = "strict"
+pythonVersion = "3.12"
+include = ["src", "tests", "scripts"]
