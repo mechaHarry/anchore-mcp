@@ -5,6 +5,7 @@ import re
 import sys
 from typing import TextIO
 import unicodedata
+from urllib.parse import unquote
 
 
 MAX_STDERR_LINE_BYTES = 512
@@ -37,13 +38,40 @@ _QUERY_KEYS = "|".join(
     )
 )
 _QUERY_SECRET = re.compile(rf"(?i)\b({_QUERY_KEYS})\s*=\s*([^&\s#]+)")
+_QUERY_PAIR = re.compile(
+    r"(?i)(?<![A-Za-z0-9_%.-])(?P<key>[A-Za-z0-9_%.-]{1,256})\s*=\s*"
+    r"(?P<value>[^&\s#]+)"
+)
+_CANONICAL_SECRET_KEYS = frozenset(
+    {
+        "accesstoken",
+        "refreshtoken",
+        "idtoken",
+        "apikey",
+        "clientsecret",
+        "password",
+        "secret",
+        "token",
+    }
+)
 
 
 def _redact_patterns(text: str) -> str:
     redacted = _AUTHORIZATION.sub(f"Authorization: {_REDACTED}", text)
     redacted = _BEARER.sub(f"Bearer {_REDACTED}", redacted)
     redacted = _BASIC.sub(f"Basic {_REDACTED}", redacted)
-    return _QUERY_SECRET.sub(lambda match: f"{match.group(1)}={_REDACTED}", redacted)
+    redacted = _QUERY_SECRET.sub(lambda match: f"{match.group(1)}={_REDACTED}", redacted)
+
+    def redact_encoded_query(match: re.Match[str]) -> str:
+        decoded_key = unquote(match.group("key"))
+        canonical_key = "".join(
+            character for character in decoded_key.casefold() if character.isalnum()
+        )
+        if canonical_key in _CANONICAL_SECRET_KEYS:
+            return f"{match.group('key')}={_REDACTED}"
+        return match.group(0)
+
+    return _QUERY_PAIR.sub(redact_encoded_query, redacted)
 
 
 def _bounded_configured_secrets(configured_secrets: Iterable[object]) -> tuple[str, ...] | None:
@@ -99,18 +127,16 @@ def _truncate_utf8(text: str, *, limit: int = MAX_STDERR_LINE_BYTES) -> str:
 def safe_log_line(message: str, *, configured_secrets: Iterable[str] = ()) -> str:
     """Render one bounded line after redacting patterns and explicit secret values."""
 
+    if len(message) > MAX_LOG_INPUT_CHARACTERS:
+        return f"{_REDACTED}{_TRUNCATED}"
     secrets = _bounded_configured_secrets(configured_secrets)
     if secrets is None:
         return _REDACTED
-    input_truncated = len(message) > MAX_LOG_INPUT_CHARACTERS
-    bounded_message = message[:MAX_LOG_INPUT_CHARACTERS]
-    redacted = _redact_patterns(bounded_message)
+    redacted = _redact_patterns(message)
     redacted = _redact_configured_secrets(redacted, secrets)
     normalized = _normalize_controls(redacted)
     normalized = _redact_patterns(normalized)
     normalized = _redact_outside_markers(normalized, secrets)
-    if input_truncated:
-        normalized = f"{normalized}{_TRUNCATED}"
     return _truncate_utf8(normalized)
 
 

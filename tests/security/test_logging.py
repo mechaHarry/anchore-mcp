@@ -70,6 +70,8 @@ def test_control_normalization_cannot_reveal_obfuscated_credentials() -> None:
         "api\u200b_key=hidden-token",
         "Be\u200barer hidden-token",
         "api%5Fkey=hidden-token",
+        "%61pi_key=hidden-token",
+        "%61%70%69%5F%6B%65%79=hidden-token",
         "access-token=hidden-token",
         "client%2Dsecret=hidden-token",
         "token=hidden-token",
@@ -103,6 +105,16 @@ def test_large_input_is_bounded_before_secret_replacement() -> None:
 
     assert len(rendered.encode("utf-8")) <= MAX_STDERR_LINE_BYTES
     assert rendered == "[REDACTED]… [truncated]"
+
+
+def test_oversized_input_cannot_expose_secret_prefix_at_cutoff() -> None:
+    secret = "SUPERSECRET"
+    message = "Basic visible " + ("x" * 8_174) + secret
+
+    rendered = safe_log_line(message, configured_secrets=(secret,))
+
+    assert rendered == "[REDACTED]… [truncated]"
+    assert not any(prefix in rendered for prefix in ("SUP", "SUPER", secret))
 
 
 def test_utf8_truncation_is_valid_and_bounded() -> None:
