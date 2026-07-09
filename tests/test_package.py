@@ -166,5 +166,9 @@ def test_sdist_contains_only_allowlisted_distribution_files(tmp_path: Path) -> N
         "src/anchore_mcp/security/__init__.py",
         "src/anchore_mcp/security/logging.py",
         "src/anchore_mcp/security/pii.py",
+        "src/anchore_mcp/tools/__init__.py",
+        "src/anchore_mcp/tools/common.py",
+        "src/anchore_mcp/tools/connection_info.py",
+        "src/anchore_mcp/tools/list_images.py",
     }
     assert sdist_path.stat().st_size < 100_000
