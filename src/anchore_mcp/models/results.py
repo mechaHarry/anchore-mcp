@@ -1,7 +1,13 @@
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
-from pydantic import ConfigDict, Field, JsonValue
+from pydantic import (
+    ConfigDict,
+    Field,
+    JsonValue,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+)
 
 from anchore_mcp.models.common import (
     ContractModel,
@@ -83,10 +89,16 @@ type HandoffEvidenceKey = Literal["detail", "vulnerabilities", "policy"]
 class HandoffEvidence(ContractModel):
     detail: HandoffEvidenceEntry
     vulnerabilities: HandoffEvidenceEntry
-    policy: HandoffEvidenceEntry | None = Field(
-        default=None,
-        exclude_if=lambda value: value is None,
-    )
+    policy: HandoffEvidenceEntry | None = None
+
+    @model_serializer(mode="wrap")
+    def serialize_without_absent_policy(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, object]:
+        serialized = cast(dict[str, object], handler(self))
+        if self.policy is None:
+            serialized.pop("policy", None)
+        return serialized
 
 
 class RemediationHandoffResult(CapabilityResult):
