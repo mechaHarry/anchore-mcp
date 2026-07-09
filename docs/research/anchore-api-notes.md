@@ -12,6 +12,8 @@ That file is the source of truth for paths, query parameters, and response shape
 
 This MCP’s **`anchore_list_images`** tool uses **`list_query`** passthrough: allowlisted keys include the deployment’s `GET /v2/images` (or `/v1/images`) query parameters from OpenAPI (when `list_query` is used) plus a small static fallback set. The public `fulltag` convenience input has a version-specific wire key: v2 uses `full_tag`; v1 uses `fulltag`. The static fallback set intentionally does not assume that `registry`, `repository`, or `repo` filter `/images`; a deployment may use those keys there only when its OpenAPI explicitly advertises them. **GET** calls use bounded retries for transient failures — see `ANCHORE_HTTP_*` in README / `env.example`.
 
+The Python 4.0 client uses one lifespan-owned `httpx.AsyncClient` per MCP session, disables redirects, bounds connection pooling and response streaming, and reuses connections across sequential calls. Retry state belongs to each request: only idempotent GET network failures and 429/502–504 responses are eligible, with bounded exponential backoff and jitter; timeout failures are not retried. Cancellation propagates and closes response streams and the lifespan client.
+
 ## Auth
 
 - **Basic** over HTTPS: username `_api_key` with password = API token (or per your org’s policy).
@@ -42,6 +44,8 @@ Within `anchore_policy_blocking_vulnerabilities` only, both exact `image_referen
 
 Both the [current Anchore API specification](https://docs.anchore.com/current/docs/api/specs/anchore_api_swagger.yaml) and the [Anchore Enterprise 5.8 v2 specification](https://docs.anchore.com/5.8/docs/api/v2/specs/anchore_api_swagger.yaml) document `full_tag` on the v2 `/images` operation and the separate registry/repository filters on `/summaries/image-tags`. Legacy v1 uses `fulltag`. The deployment’s matching OpenAPI document remains authoritative because supported operations and response shapes can vary by installed version.
 
+The FastMCP contract represents these choices as discriminated locator objects. Digest and exact-reference locators are supported by digest-keyed evidence tools; the repository locator is limited to policy-blocker selection. Structured results retain explicit complete/incomplete selection state and observed byte sizes rather than translating uncertainty into legacy flat wrapper fields.
+
 ### SBOM path pitfall (400 Bad Request)
 
 Enterprise **v2** OpenAPI lists image SBOMs under **`.../sboms/...`** (plural). Calling **`.../sbom/...`** (singular) can return **HTTP 400** with a non-obvious body. This MCP uses `/sboms/` for v2. **Source** repository SBOM routes in Anchore docs often use `/v2/sources/{id}/sbom/...` (singular) — image vs source paths are not interchangeable; always confirm on `GET /v2/openapi.json`.
@@ -55,6 +59,10 @@ Set environment variable `ANCHORE_API_VERSION=v1` if you must talk to older beha
 | Images | `GET /v1/images` (`fulltag=...` for exact tagged lookup) |
 | Image tag summaries | `GET /v1/summaries/image-tags` only after `/v1/openapi.json` explicitly proves the compatible `GET` filters described above |
 | Image vulns | `GET /v1/images/{imageDigest}/vulnerabilities` |
+
+## Remediation handoff
+
+The native handoff contract is version `2.0.0`. It resolves one trusted digest, then retrieves detail, vulnerabilities, and optional policy evidence. Each evidence entry is `{data, sizeBytes}` and `totalSizeBytes` is the sum of included responses. When policy retrieval is disabled, the `policy` entry is omitted. This is unmasked Anchore evidence for downstream interpretation, not remediation instruction; see [the exact schema](../remediation-handoff-schema.md).
 
 ## References
 

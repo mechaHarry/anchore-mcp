@@ -1,69 +1,61 @@
-# Remediation handoff JSON (R7)
+# Remediation handoff structured content
 
-Versioned bundle produced by the MCP tool **`anchore_remediation_handoff`**. Downstream automation (ticketing, rebuild pipelines, patch trackers) should treat this as **evidence from Anchore**, not as execution instructions. **No** source-repository routing fields are required; consumers attach org/repo metadata themselves.
+`anchore_remediation_handoff` returns a versioned bundle of Anchore evidence. It is not a remediation command, patch prescription, source-repository routing instruction, or authorization to change another system.
 
-## Wire format (MCP tool text content)
+The concise MCP text content is PII-masked. The structured evidence documented here is intentionally unmasked so downstream software can interpret the original Anchore response. Treat it as sensitive data and do not copy it wholesale into logs, prompts, or tickets.
 
-The tool returns the same **R8 + R14** wrapper as other Anchore tools (see `src/tools/format.ts`):
+## Current contract: `2.0.0`
 
-| Field | Meaning |
-|--------|---------|
-| `context` | Non-secret scope: `baseUrl`, optional `account`, `apiVersion`, `action`, `summaryLine` |
-| `summary` | R14-masked textual summary |
-| `warnings` | R14 warnings when textual heuristics match |
-| `sizeBytes` | R15 — sum of UTF-8 body sizes of bundled Anchore HTTP responses |
-| `anchore` | **Remediation handoff bundle** (schema below) |
+The tool’s `structuredContent` has this shape:
 
-`anchore` in that wrapper is the composite payload documented here — not a single raw API response.
+```json
+{
+  "handoffVersion": "2.0.0",
+  "generatedAt": "2026-07-08T12:00:00Z",
+  "deployment": {
+    "baseUrl": "https://anchore.example",
+    "account": null,
+    "apiVersion": "v2"
+  },
+  "imageDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "selection": {
+    "complete": true,
+    "pages_fetched": 0,
+    "reason": null
+  },
+  "evidence": {
+    "detail": {"data": {}, "sizeBytes": 2},
+    "vulnerabilities": {"data": {"items": []}, "sizeBytes": 12},
+    "policy": {"data": {"status": "green"}, "sizeBytes": 18}
+  },
+  "totalSizeBytes": 32,
+  "context": {
+    "base_url": "https://anchore.example",
+    "account": null,
+    "api_version": "v2",
+    "action": "remediation handoff"
+  },
+  "warnings": []
+}
+```
 
-## Bundle schema (`anchore` object)
+Required bundle fields are `handoffVersion`, `generatedAt`, `deployment`, `imageDigest`, `selection`, `evidence`, `totalSizeBytes`, `context`, and `warnings`.
 
-### `handoffVersion`
+`deployment` contains `baseUrl`, optional `account`, and `apiVersion`. `generatedAt` is an ISO 8601 timestamp. `totalSizeBytes` is the sum of the included Anchore HTTP response body sizes.
 
-- **Type:** string
-- **Current:** `1.0.0` (see `REMEDIATION_HANDOFF_VERSION` in `src/tools/remediation-handoff.ts`)
-- **Rule:** Bump when you make breaking changes to required fields or semantics.
+`evidence.detail` and `evidence.vulnerabilities` are always present. Each evidence entry is exactly `{data, sizeBytes}`: `data` is the raw JSON response and `sizeBytes` is its observed UTF-8 response-body length. `evidence.policy` has the same shape when `include_policy_check` is true. When policy is disabled, the `policy` key is omitted entirely; it is not emitted as `null`.
 
-### `generatedAt`
+Exact evidence payload shapes vary by Anchore version. Confirm them with the configured deployment’s same-origin, version-matched OpenAPI document.
 
-- **Type:** string, ISO 8601 timestamp (UTC recommended)
-
-### `deployment`
-
-Non-secret Anchore scope (R8):
-
-| Field | Type | Required |
-|-------|------|----------|
-| `baseUrl` | string (HTTPS) | Yes |
-| `account` | string | No — when `x-anchore-account` was configured |
-| `apiVersion` | `"v1"` \| `"v2"` | Yes |
-
-### `imageDigest`
-
-- **Type:** string  
-- **Meaning:** Image digest passed to the tool (e.g. `sha256:…`), used as the correlation key for all evidence.
-
-### `evidence`
-
-Anchore API payloads and R15 sizes. Exact JSON shapes depend on your Anchore Enterprise version; confirm with `https://<host>/v2/openapi.json`.
-
-| Field | Type | Meaning |
-|-------|------|---------|
-| `imageDetail` | unknown | Body of `GET /v2/images/{digest}` (or v1 equivalent) |
-| `imageDetailSizeBytes` | number | UTF-8 byte length of that response |
-| `vulnerabilities` | unknown | Body of `GET .../vuln/all` (v2) or `.../vulnerabilities` (v1) |
-| `vulnerabilitiesSizeBytes` | number | UTF-8 byte length |
-| `policyCheck` | unknown | Present when `include_policy_check` is true — body of `GET .../check` |
-| `policyCheckSizeBytes` | number | Present with `policyCheck` |
-
-When `include_policy_check` is **false**, `policyCheck` and `policyCheckSizeBytes` are omitted.
+Breaking required-field or semantic changes require a new `handoffVersion`.
 
 ## Non-goals
 
-- No guaranteed fix/version pins — use vulnerability and image metadata inside `evidence` per your process.
-- No mandatory CI or repo identifiers in v1.
+- No guaranteed fix version or patch instruction
+- No mandatory organization, repository, ticket, or CI identifiers
+- No permission to execute a destructive operation
 
 ## References
 
-- Plan: [docs/plans/2026-04-02-001-feat-anchore-enterprise-mcp-plan.md](plans/2026-04-02-001-feat-anchore-enterprise-mcp-plan.md)
-- API mapping: [docs/research/anchore-api-notes.md](research/anchore-api-notes.md)
+- [Anchore API research notes](research/anchore-api-notes.md)
+- [Python FastMCP rewrite design](superpowers/specs/2026-07-08-python-fastmcp-rewrite-design.md)

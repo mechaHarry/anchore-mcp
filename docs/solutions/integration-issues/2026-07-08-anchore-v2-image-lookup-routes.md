@@ -62,7 +62,7 @@ Keep the public locator modes explicit and route each one independently:
 - V1 capability tests require a compatible prefixed or unprefixed OpenAPI path with direct filters, reject missing/`$ref` filters, fetch failures, and redirects, and prove that the summary route is not called without capability evidence.
 - Policy-tool selection tests prove that a matching digest-bearing row with a missing, invalid, or untrusted timestamp fails closed while a matching digestless row may be ignored.
 - List-image tests assert the version-specific public-`fulltag` translation and that registry/repository keys are absent from the static `/images` fallback allowlist.
-- Run `pnpm run check` and `git diff --check` before committing.
+- Run `uv run python scripts/check.py` and `git diff --check` before committing.
 - For a live deployment, inspect the authenticated, version-matched OpenAPI document. V2 summary routing is already verified by the implemented contract; v1 must pass the explicit capability gate above.
 
 ## Related

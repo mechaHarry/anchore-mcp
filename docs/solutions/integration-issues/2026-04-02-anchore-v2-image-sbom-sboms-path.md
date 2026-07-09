@@ -36,7 +36,7 @@ Source-repository SBOM endpoints documented elsewhere may still use **`/v2/sourc
 
 ## Verification
 
-- `pnpm test` — URL expectations in `src/tools/sbom.test.ts` assert `.../sboms/native-json` (etc.).
+- `uv run pytest tests/unit/tools/test_image_sbom.py -q` — route expectations assert `.../sboms/native-json` (and the SPDX/CycloneDX variants).
 - Live check: `GET https://<host>/v2/openapi.json` and search for `sboms` under `images`.
 
 ## Related
