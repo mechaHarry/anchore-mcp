@@ -60,7 +60,16 @@ def test_phone_prefix_inside_alphanumeric_identifier_is_not_masked() -> None:
 
 
 def test_masks_unicode_and_punycode_email_addresses_completely() -> None:
-    masked = mask_pii_text("δοκιμή@παράδειγμα.δοκιμή and person@example.xn--p1ai")
+    masked = mask_pii_text(
+        "δοκιμή@παράδειγμα.δοκιμή and person@example.xn--p1ai and jose\u0301@example.test"
+    )
 
-    assert masked.text == "[email redacted] and [email redacted]"
+    assert masked.text == "[email redacted] and [email redacted] and [email redacted]"
     assert masked.kinds == ("email",)
+
+
+def test_phone_like_digits_inside_unicode_identifiers_are_not_masked() -> None:
+    for text in ("id_1234567890_suffix", "α1234567890β"):
+        masked = mask_pii_text(text)
+        assert masked.text == text
+        assert masked.kinds == ()

@@ -39,7 +39,7 @@ _QUERY_KEYS = "|".join(
 )
 _QUERY_SECRET = re.compile(rf"(?i)\b({_QUERY_KEYS})\s*=\s*([^&\s#]+)")
 _QUERY_PAIR = re.compile(
-    r"(?i)(?<![A-Za-z0-9_%.-])(?P<key>[A-Za-z0-9_%.-]{1,256})\s*=\s*"
+    r"(?i)(?<![A-Za-z0-9_%.-])(?P<key>[A-Za-z0-9_%.\-\[\]]{1,256})\s*=\s*"
     r"(?P<value>[^&\s#]+)"
 )
 _CANONICAL_SECRET_KEYS = frozenset(
@@ -63,11 +63,17 @@ def _redact_patterns(text: str) -> str:
     redacted = _QUERY_SECRET.sub(lambda match: f"{match.group(1)}={_REDACTED}", redacted)
 
     def redact_encoded_query(match: re.Match[str]) -> str:
-        decoded_key = unquote(match.group("key"))
+        decoded_key = match.group("key")
+        for _ in range(8):
+            next_key = unquote(decoded_key)
+            if next_key == decoded_key:
+                break
+            decoded_key = next_key
         canonical_key = "".join(
             character for character in decoded_key.casefold() if character.isalnum()
         )
-        if canonical_key in _CANONICAL_SECRET_KEYS:
+        unresolved_encoding = re.search(r"%[0-9a-fA-F]{2}", decoded_key) is not None
+        if canonical_key in _CANONICAL_SECRET_KEYS or unresolved_encoding:
             return f"{match.group('key')}={_REDACTED}"
         return match.group(0)
 
