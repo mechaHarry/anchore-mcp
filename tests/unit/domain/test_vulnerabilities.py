@@ -1,3 +1,5 @@
+from pytest import MonkeyPatch
+
 from anchore_mcp.domain.policy import PolicyBlockingFinding
 from anchore_mcp.domain.vulnerabilities import (
     MAX_VULNERABILITY_ROWS,
@@ -241,3 +243,30 @@ def test_duplicate_matches_merge_exact_evidence_without_duplicating_record() -> 
         matched_by=("vulnerability_id", "package_identity"),
         policy_finding_ref="first",
     )
+
+
+def test_correlation_normalizes_each_identifier_once_and_uses_exact_indexes(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    from anchore_mcp.domain import vulnerabilities as module
+
+    original = module.normalize_vulnerability_id
+    calls = 0
+
+    def counted(value: str | None, *, search: bool = False) -> str | None:
+        nonlocal calls
+        calls += 1
+        return original(value, search=search)
+
+    monkeypatch.setattr(module, "normalize_vulnerability_id", counted)
+    findings = tuple(
+        PolicyBlockingFinding(vulnerability_id=f"CVE-2099-{index + 10_000}", source_ref=str(index))
+        for index in range(2_000)
+    )
+    records = tuple(
+        NormalizedVulnerability(vulnerability_id=f"CVE-2098-{index + 10_000}")
+        for index in range(1_000)
+    )
+
+    assert correlate_blockers(findings, records) == ()
+    assert calls <= len(findings) + len(records)

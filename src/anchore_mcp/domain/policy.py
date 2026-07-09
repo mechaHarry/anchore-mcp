@@ -5,6 +5,8 @@ import math
 import re
 from typing import Literal, cast
 
+from anchore_mcp.errors import EnumerationIncompleteError
+
 
 MAX_JSON_NODES = 10_000
 MAX_JSON_DEPTH = 32
@@ -47,6 +49,13 @@ class PolicyBlockingFinding:
     gate: str | None = None
     trigger: str | None = None
     reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyInterpretation:
+    status: PolicyStatus
+    has_blocking_action: bool
+    findings: tuple[PolicyBlockingFinding, ...]
 
 
 def _string_value(value: object) -> str | None:
@@ -148,43 +157,31 @@ def json_within_limits(payload: object) -> bool:
     return complete
 
 
-def policy_status_from_payload(payload: object) -> PolicyStatus:
+def interpret_policy(payload: object) -> PolicyInterpretation:
+    """Interpret policy evidence once, rejecting any bounded-traversal uncertainty."""
+
     objects, complete = _bounded_objects(payload)
     if not complete:
-        return "unknown"
-    for value, _ in objects:
-        for key in ("status", "result"):
-            candidate = _string_value(value.get(key))
-            if candidate is None:
-                continue
-            normalized = candidate.casefold()
-            if normalized in _GREEN_STATUSES:
-                return "green"
-            if normalized in _RED_STATUSES:
-                return "red"
-    return "unknown"
-
-
-def _has_blocking_action(value: dict[str, object]) -> bool:
-    return any(
-        (candidate := _string_value(value.get(key))) is not None
-        and candidate.casefold() in _BLOCK_ACTIONS
-        for key in _BLOCK_ACTION_KEYS
-    )
-
-
-def has_policy_blocking_action(payload: object) -> bool:
-    objects, complete = _bounded_objects(payload)
-    return complete and any(_has_blocking_action(value) for value, _ in objects)
-
-
-def extract_policy_blocking_findings(payload: object) -> tuple[PolicyBlockingFinding, ...]:
-    objects, complete = _bounded_objects(payload)
-    if not complete:
-        return ()
+        raise EnumerationIncompleteError("Policy evidence exceeded interpretation limits")
+    status: PolicyStatus = "unknown"
+    has_blocking_action = False
     findings: list[PolicyBlockingFinding] = []
     for value, source_ref in objects:
-        if not _has_blocking_action(value):
+        if status == "unknown":
+            for key in ("status", "result"):
+                candidate = _string_value(value.get(key))
+                if candidate is None:
+                    continue
+                normalized = candidate.casefold()
+                if normalized in _GREEN_STATUSES:
+                    status = "green"
+                    break
+                if normalized in _RED_STATUSES:
+                    status = "red"
+                    break
+        blocking = _has_blocking_action(value)
+        has_blocking_action = has_blocking_action or blocking
+        if not blocking:
             continue
         gate = _first_string(value, ("gate",))
         vulnerability_gate = gate is not None and gate.casefold() in _VULNERABILITY_GATES
@@ -211,4 +208,24 @@ def extract_policy_blocking_findings(payload: object) -> tuple[PolicyBlockingFin
                 reason=_first_string(value, _REASON_KEYS),
             )
         )
-    return tuple(findings)
+    return PolicyInterpretation(status, has_blocking_action, tuple(findings))
+
+
+def policy_status_from_payload(payload: object) -> PolicyStatus:
+    return interpret_policy(payload).status
+
+
+def _has_blocking_action(value: dict[str, object]) -> bool:
+    return any(
+        (candidate := _string_value(value.get(key))) is not None
+        and candidate.casefold() in _BLOCK_ACTIONS
+        for key in _BLOCK_ACTION_KEYS
+    )
+
+
+def has_policy_blocking_action(payload: object) -> bool:
+    return interpret_policy(payload).has_blocking_action
+
+
+def extract_policy_blocking_findings(payload: object) -> tuple[PolicyBlockingFinding, ...]:
+    return interpret_policy(payload).findings

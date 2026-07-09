@@ -1,3 +1,5 @@
+import pytest
+
 from anchore_mcp.domain.policy import (
     MAX_JSON_COLLECTION_ENTRIES,
     MAX_JSON_DEPTH,
@@ -8,6 +10,7 @@ from anchore_mcp.domain.policy import (
     has_policy_blocking_action,
     policy_status_from_payload,
 )
+from anchore_mcp.errors import EnumerationIncompleteError
 
 
 def test_generic_id_is_not_vulnerability_evidence() -> None:
@@ -78,18 +81,31 @@ def test_hostile_policy_json_limits_fail_closed_without_recursion() -> None:
     for _ in range(MAX_JSON_DEPTH + 1):
         too_deep = {"nested": too_deep}
 
-    assert policy_status_from_payload(too_deep) == "unknown"
-    assert extract_policy_blocking_findings(too_deep) == ()
-    assert has_policy_blocking_action(too_deep) is False
-    assert extract_policy_blocking_findings([None] * (MAX_JSON_COLLECTION_ENTRIES + 1)) == ()
+    for function in (
+        policy_status_from_payload,
+        extract_policy_blocking_findings,
+        has_policy_blocking_action,
+    ):
+        with pytest.raises(EnumerationIncompleteError):
+            function(too_deep)
+    with pytest.raises(EnumerationIncompleteError):
+        extract_policy_blocking_findings([None] * (MAX_JSON_COLLECTION_ENTRIES + 1))
     node_heavy = [[None] * 10 for _ in range((MAX_JSON_NODES // 11) + 1)]
-    assert extract_policy_blocking_findings(node_heavy) == ()
-    assert (
-        extract_policy_blocking_findings(
-            {"action": "stop", "cve": "CVE-2099-0005", "noise": "x" * (MAX_JSON_STRING_LENGTH + 1)}
-        )
-        == ()
-    )
+    with pytest.raises(EnumerationIncompleteError):
+        extract_policy_blocking_findings(node_heavy)
+    oversized_red = {
+        "status": "fail",
+        "action": "stop",
+        "cve": "CVE-2099-0005",
+        "noise": "x" * (MAX_JSON_STRING_LENGTH + 1),
+    }
+    for function in (
+        policy_status_from_payload,
+        extract_policy_blocking_findings,
+        has_policy_blocking_action,
+    ):
+        with pytest.raises(EnumerationIncompleteError):
+            function(oversized_red)
 
 
 def test_cycles_are_bounded_and_supported_advisories_are_normalized() -> None:
@@ -121,7 +137,8 @@ def test_source_reference_length_limit_fails_closed_before_depth_limit() -> None
     for index in range(28):
         payload = {f"key-{index}-{'x' * 294}": payload}
 
-    assert extract_policy_blocking_findings(payload) == ()
+    with pytest.raises(EnumerationIncompleteError):
+        extract_policy_blocking_findings(payload)
 
 
 def test_boolean_fields_are_not_strings_but_finite_numeric_package_versions_are_exact() -> None:

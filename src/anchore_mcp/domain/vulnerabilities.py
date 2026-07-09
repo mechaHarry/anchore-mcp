@@ -214,35 +214,39 @@ def extract_vulnerability_records(payload: object) -> tuple[NormalizedVulnerabil
     return tuple(records)
 
 
-def _matched_by(
-    finding: PolicyBlockingFinding, vulnerability: NormalizedVulnerability
-) -> tuple[CorrelationKind, ...]:
-    matched: list[CorrelationKind] = []
-    finding_id = normalize_vulnerability_id(finding.vulnerability_id)
-    vulnerability_id = normalize_vulnerability_id(vulnerability.vulnerability_id)
-    if finding_id is not None and finding_id == vulnerability_id:
-        matched.append("vulnerability_id")
-    if (
-        finding.package_name is not None
-        and finding.package_version is not None
-        and finding.package_name == vulnerability.package_name
-        and finding.package_version == vulnerability.package_version
-    ):
-        matched.append("package_identity")
-    return tuple(matched)
-
-
 def correlate_blockers(
     findings: tuple[PolicyBlockingFinding, ...],
     vulnerabilities: tuple[NormalizedVulnerability, ...],
 ) -> tuple[BlockingVulnerability, ...]:
+    by_id: dict[str, list[NormalizedVulnerability]] = {}
+    by_package: dict[tuple[str, str], list[NormalizedVulnerability]] = {}
+    record_order: dict[NormalizedVulnerability, int] = {}
+    for index, vulnerability in enumerate(vulnerabilities):
+        record_order.setdefault(vulnerability, index)
+        vulnerability_id = normalize_vulnerability_id(vulnerability.vulnerability_id)
+        if vulnerability_id is not None:
+            by_id.setdefault(vulnerability_id, []).append(vulnerability)
+        if vulnerability.package_name is not None and vulnerability.package_version is not None:
+            by_package.setdefault(
+                (vulnerability.package_name, vulnerability.package_version), []
+            ).append(vulnerability)
+
     correlated: list[BlockingVulnerability] = []
     index_by_record: dict[NormalizedVulnerability, int] = {}
     for finding in findings:
-        for vulnerability in vulnerabilities:
-            matched_by = _matched_by(finding, vulnerability)
-            if not matched_by:
-                continue
+        matched_records: dict[NormalizedVulnerability, list[CorrelationKind]] = {}
+        finding_id = normalize_vulnerability_id(finding.vulnerability_id)
+        if finding_id is not None:
+            for vulnerability in by_id.get(finding_id, ()):
+                matched_records.setdefault(vulnerability, []).append("vulnerability_id")
+        if finding.package_name is not None and finding.package_version is not None:
+            package_key = (finding.package_name, finding.package_version)
+            for vulnerability in by_package.get(package_key, ()):
+                kinds = matched_records.setdefault(vulnerability, [])
+                if "package_identity" not in kinds:
+                    kinds.append("package_identity")
+        for vulnerability in sorted(matched_records, key=record_order.__getitem__):
+            matched_by = tuple(matched_records[vulnerability])
             existing_index = index_by_record.get(vulnerability)
             if existing_index is not None:
                 existing = correlated[existing_index]
