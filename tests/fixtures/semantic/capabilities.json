@@ -1,0 +1,27 @@
+{
+  "vulnerabilities": {
+    "items": [
+      {"vuln": "CVE-2099-0001", "package_name": "libsynthetic"},
+      {"vuln": "CVE-2099-9999", "package_name": "unrelated"}
+    ]
+  },
+  "sbom": {
+    "normal": {"format": "native-json", "artifacts": []},
+    "spdx": {"spdxVersion": "SPDX-2.3", "packages": []},
+    "cyclonedx": {"bomFormat": "CycloneDX", "components": []}
+  },
+  "policy": {
+    "green": {"status": "green"},
+    "red": {
+      "status": "red",
+      "findings": [
+        {
+          "gate": "vulnerabilities",
+          "action": "stop",
+          "vulnerability_id": "CVE-2099-0001"
+        }
+      ]
+    }
+  },
+  "detail": {"imageDigest": "sha256:abc", "analysis_status": "analyzed"}
+}

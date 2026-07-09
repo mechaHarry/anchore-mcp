@@ -1,0 +1,25 @@
+{
+  "unique": {
+    "items": [
+      {
+        "image_digest": "sha256:abc",
+        "full_tag": "registry.example/team/app:1"
+      }
+    ]
+  },
+  "ambiguous": {
+    "items": [
+      {
+        "image_digest": "sha256:abc",
+        "full_tag": "registry.example/team/app:1"
+      },
+      {
+        "image_digest": "sha256:def",
+        "full_tag": "registry.example/team/app:1"
+      }
+    ]
+  },
+  "incomplete": {
+    "unexpected": []
+  }
+}

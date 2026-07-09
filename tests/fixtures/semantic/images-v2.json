@@ -1,0 +1,8 @@
+{
+  "items": [
+    {
+      "image_digest": "sha256:abc",
+      "full_tag": "registry.example/team/app:1"
+    }
+  ]
+}

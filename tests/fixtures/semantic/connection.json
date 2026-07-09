@@ -1,0 +1,5 @@
+{
+  "configured": true,
+  "base_url": "https://anchore.example/api",
+  "api_version": "v2"
+}

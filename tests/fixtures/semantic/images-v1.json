@@ -1,0 +1,8 @@
+{
+  "images": [
+    {
+      "imageDigest": "sha256:abc",
+      "fulltag": "registry.example/team/app:1"
+    }
+  ]
+}

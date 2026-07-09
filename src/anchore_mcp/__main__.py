@@ -1,5 +1,5 @@
 def main() -> None:
-    from anchore_mcp.server import run  # pyright: ignore[reportMissingImports, reportUnknownVariableType]
+    from anchore_mcp.server import run
 
     run()
 
