@@ -13,6 +13,8 @@ from anchore_mcp.models.locators import (
 )
 from anchore_mcp.models.results import (
     ConnectionInfoResult,
+    HandoffDeployment,
+    HandoffEvidenceEntry,
     ImageDetailResult,
     ImagePolicyCheckResult,
     ImageSbomResult,
@@ -28,6 +30,8 @@ __all__ = [
     "DeploymentContext",
     "DigestLocator",
     "EnumerationState",
+    "HandoffDeployment",
+    "HandoffEvidenceEntry",
     "ImageDetailResult",
     "ImageLocator",
     "ImagePolicyCheckResult",

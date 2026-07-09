@@ -19,7 +19,12 @@ from anchore_mcp.anchore.pagination import (
     fetch_image_pages,
     fetch_image_tag_summary_pages,
 )
-from anchore_mcp.anchore.routes import image_full_tag_query_key
+from anchore_mcp.anchore.http import JsonResponse
+from anchore_mcp.anchore.routes import (
+    image_full_tag_query_key,
+    image_tag_summaries_route,
+    images_list_route,
+)
 from anchore_mcp.config import AnchoreConnection
 from anchore_mcp.domain.images import (
     digest_from_image_row,
@@ -27,7 +32,7 @@ from anchore_mcp.domain.images import (
     validate_full_image_reference,
 )
 from anchore_mcp.errors import EnumerationIncompleteError, TrustEvidenceError
-from anchore_mcp.models.common import SelectedImage
+from anchore_mcp.models.common import EnumerationState, SelectedImage
 from anchore_mcp.models.locators import DigestLocator, PolicyImageLocator, ReferenceLocator
 
 
@@ -63,6 +68,41 @@ class _TimestampedCandidate:
     reference: str
     repository: str
     timestamp: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyImageSelection:
+    selected_image: SelectedImage
+    enumeration: EnumerationState
+
+
+@dataclass(slots=True)
+class _PageCountingClient:
+    client: JsonHttpClient
+    pages_fetched: int = 0
+
+    async def get_json(
+        self,
+        connection: AnchoreConnection,
+        path: str,
+        *,
+        params: httpx.QueryParams | None = None,
+        max_response_bytes: int,
+        timeout: httpx.Timeout | float | None = None,
+    ) -> JsonResponse:
+        response = await self.client.get_json(
+            connection,
+            path,
+            params=params,
+            max_response_bytes=max_response_bytes,
+            timeout=timeout,
+        )
+        if path in {
+            images_list_route(connection.api_version),
+            image_tag_summaries_route(connection.api_version),
+        }:
+            self.pages_fetched += 1
+        return response
 
 
 def _millisecond_precision(value: datetime) -> datetime:
@@ -290,3 +330,30 @@ async def select_image_for_policy(
     if isinstance(locator, ReferenceLocator):
         return await _select_reference(client, connection, locator, caps)
     return await _select_repository(client, connection, locator, openapi_cache, caps)
+
+
+async def select_image_for_policy_with_state(
+    client: JsonHttpClient,
+    connection: AnchoreConnection,
+    locator: PolicyImageLocator,
+    openapi_cache: OpenApiCache,
+    *,
+    caps: PageCaps = RESOLUTION_CAPS,
+) -> PolicyImageSelection:
+    """Select an image and retain the exact completed enumeration page count."""
+
+    counting_client = _PageCountingClient(client)
+    selected = await select_image_for_policy(
+        counting_client,
+        connection,
+        locator,
+        openapi_cache,
+        caps=caps,
+    )
+    return PolicyImageSelection(
+        selected_image=selected,
+        enumeration=EnumerationState(
+            complete=True,
+            pages_fetched=counting_client.pages_fetched,
+        ),
+    )

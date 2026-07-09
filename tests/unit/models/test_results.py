@@ -8,6 +8,8 @@ import pytest
 from anchore_mcp.models.common import DeploymentContext, EnumerationState, SelectedImage
 from anchore_mcp.models.results import (
     ConnectionInfoResult,
+    HandoffDeployment,
+    HandoffEvidenceEntry,
     ImageDetailResult,
     ImagePolicyCheckResult,
     ImageSbomResult,
@@ -109,10 +111,12 @@ def test_all_capability_results_have_context_and_warnings() -> None:
             warnings=[],
             handoffVersion="2.0.0",
             generatedAt=datetime(2026, 7, 9, tzinfo=UTC),
+            deployment=HandoffDeployment(
+                baseUrl="https://anchore.example", account="team", apiVersion="v2"
+            ),
             imageDigest="sha256:abc",
             selection=complete(),
-            evidence={"detail": evidence},
-            evidence_size_bytes={"detail": 12},
+            evidence={"detail": HandoffEvidenceEntry(data=evidence, sizeBytes=12)},
             totalSizeBytes=12,
         ),
     ]
@@ -130,10 +134,12 @@ def test_handoff_uses_public_camel_case_aliases() -> None:
         warnings=[],
         handoffVersion="2.0.0",
         generatedAt=datetime(2026, 7, 9, tzinfo=UTC),
+        deployment=HandoffDeployment(
+            baseUrl="https://anchore.example", account="team", apiVersion="v2"
+        ),
         imageDigest="sha256:abc",
         selection=complete(),
         evidence={},
-        evidence_size_bytes={},
         totalSizeBytes=0,
     )
 
@@ -143,6 +149,7 @@ def test_handoff_uses_public_camel_case_aliases() -> None:
     assert dumped["handoffVersion"] == "2.0.0"
     assert dumped["generatedAt"] == "2026-07-09T00:00:00Z"
     assert dumped["imageDigest"] == "sha256:abc"
+    assert dumped["deployment"]["apiVersion"] == "v2"
     assert dumped["totalSizeBytes"] == 0
     assert {"handoffVersion", "generatedAt", "imageDigest", "totalSizeBytes"} <= set(
         schema["properties"]
@@ -199,10 +206,12 @@ def test_handoff_image_digest_rejects_blank_or_control_text(invalid: str) -> Non
             warnings=[],
             handoffVersion="2.0.0",
             generatedAt=datetime(2026, 7, 9, tzinfo=UTC),
+            deployment=HandoffDeployment(
+                baseUrl="https://anchore.example", account="team", apiVersion="v2"
+            ),
             imageDigest=invalid,
             selection=complete(),
             evidence={},
-            evidence_size_bytes={},
             totalSizeBytes=0,
         )
 

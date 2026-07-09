@@ -36,6 +36,7 @@ class ResolveCandidate:
 @dataclass(frozen=True, slots=True)
 class Resolved:
     digest: str
+    pages_fetched: int = field(default=0, compare=False)
     kind: Literal["resolved"] = field(init=False, default="resolved")
 
 
@@ -122,4 +123,7 @@ async def resolve_image_reference(
     if not pages.complete:
         reason = pages.incomplete_reason or "Image list enumeration was incomplete."
         return Incomplete(f"{reason} Narrow {query_key} or raise caps.")
-    return resolve_image_rows(pages.rows, requested)
+    result = resolve_image_rows(pages.rows, requested)
+    if isinstance(result, Resolved):
+        return Resolved(result.digest, pages_fetched=pages.pages_fetched)
+    return result

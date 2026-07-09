@@ -9,6 +9,7 @@ from anchore_mcp.models.common import (
     EnumerationState,
     IdentifierText,
     SelectedImage,
+    ApiVersion,
 )
 
 
@@ -61,13 +62,31 @@ class ImageDetailResult(SelectedCapabilityResult):
     size_bytes: ByteCount
 
 
+class HandoffEvidenceEntry(ContractModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    data: JsonValue
+    size_bytes: ByteCount = Field(alias="sizeBytes")
+
+
+class HandoffDeployment(ContractModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    base_url: str = Field(alias="baseUrl")
+    account: str | None = None
+    api_version: ApiVersion = Field(alias="apiVersion")
+
+
+type HandoffEvidenceKey = Literal["detail", "vulnerabilities", "policy"]
+
+
 class RemediationHandoffResult(CapabilityResult):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     handoff_version: Literal["2.0.0"] = Field(alias="handoffVersion")
     generated_at: datetime = Field(alias="generatedAt")
+    deployment: HandoffDeployment
     image_digest: IdentifierText = Field(alias="imageDigest")
     selection: EnumerationState
-    evidence: dict[str, JsonValue]
-    evidence_size_bytes: dict[str, ByteCount]
+    evidence: dict[HandoffEvidenceKey, HandoffEvidenceEntry]
     total_size_bytes: ByteCount = Field(alias="totalSizeBytes")
