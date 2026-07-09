@@ -7,7 +7,7 @@ from fastmcp.tools import ToolResult
 import httpx
 from pydantic import Field
 
-from anchore_mcp.anchore.http import JsonResponse
+from anchore_mcp.anchore.http import MAX_RESPONSE_BYTES, JsonResponse
 from anchore_mcp.anchore.openapi import (
     MAX_LIST_QUERY_ENTRIES_EXAMINED,
     MAX_LIST_QUERY_KEY_LENGTH,
@@ -17,6 +17,7 @@ from anchore_mcp.anchore.openapi import (
 )
 from anchore_mcp.anchore.pagination import JsonHttpClient, fetch_image_pages
 from anchore_mcp.config import AnchoreConnection, load_connection
+from anchore_mcp.errors import AnchoreResponseTooLargeError
 from anchore_mcp.models.common import DeploymentContext, EnumerationState
 from anchore_mcp.models.results import ListImagesResult
 from anchore_mcp.tools.common import runtime_from_context, success_result, tool_error
@@ -27,6 +28,7 @@ type QueryValue = Annotated[str, Field(max_length=MAX_LIST_QUERY_VALUE_LENGTH)]
 type ListQuery = Annotated[
     dict[QueryKey, QueryValue], Field(max_length=MAX_LIST_QUERY_ENTRIES_EXAMINED)
 ]
+MAX_LIST_TOTAL_BYTES = MAX_RESPONSE_BYTES
 
 
 class _CountingClient:
@@ -50,7 +52,10 @@ class _CountingClient:
             max_response_bytes=max_response_bytes,
             timeout=timeout,
         )
-        self.total_bytes += response.byte_length
+        observed = self.total_bytes + response.byte_length
+        if observed > MAX_LIST_TOTAL_BYTES:
+            raise AnchoreResponseTooLargeError(observed=observed, max=MAX_LIST_TOTAL_BYTES)
+        self.total_bytes = observed
         return response
 
 

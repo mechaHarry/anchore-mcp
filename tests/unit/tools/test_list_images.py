@@ -12,7 +12,7 @@ from anchore_mcp.anchore.http import JsonResponse
 from anchore_mcp.anchore.openapi import OpenApiCache
 from anchore_mcp.config import AnchoreConnection
 from anchore_mcp.runtime import Runtime
-from anchore_mcp.tools.list_images import anchore_list_images
+from anchore_mcp.tools.list_images import MAX_LIST_TOTAL_BYTES, anchore_list_images
 
 
 class StubHttp:
@@ -149,6 +149,32 @@ async def test_list_images_counts_all_page_bytes_and_preserves_raw_evidence(
     assert result.structured_content["size_bytes"] == 24
     assert result.structured_content["images"][0]["owner"] == "person@example.test"
     assert len(result.structured_content["images"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_list_images_enforces_one_aggregate_decoded_byte_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_size = (MAX_LIST_TOTAL_BYTES // 2) + 1
+    http = StubHttp(
+        [
+            response(
+                {"items": [{"image_digest": "sha256:first"}]},
+                byte_length=first_size,
+                link='</v2/images?page=2>; rel="next"',
+            ),
+            response(
+                {"items": [{"image_digest": "sha256:must-not-be-retained"}]},
+                byte_length=first_size,
+            ),
+        ]
+    )
+    monkeypatch.setattr("anchore_mcp.tools.list_images.load_connection", connection)
+
+    with pytest.raises(ToolError, match="response exceeded"):
+        await anchore_list_images(fake_context(http))
+
+    assert len(http.calls) == 2
 
 
 @pytest.mark.asyncio
