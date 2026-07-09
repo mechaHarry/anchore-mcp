@@ -42,6 +42,11 @@ def response(data: object, *, link: str | None = None) -> JsonResponse:
     return JsonResponse(data=data, byte_length=2, headers=headers)  # type: ignore[arg-type]
 
 
+def sized_response(data: object, byte_length: int, *, link: str | None = None) -> JsonResponse:
+    headers = httpx.Headers({"link": link} if link is not None else {})
+    return JsonResponse(data=data, byte_length=byte_length, headers=headers)  # type: ignore[arg-type]
+
+
 def test_caps_are_immutable_positive_and_constants_are_bounded() -> None:
     assert LIST_CAPS == PageCaps(max_pages=200, max_items=50_000)
     assert RESOLUTION_CAPS == PageCaps(max_pages=100, max_items=20_000)
@@ -223,6 +228,37 @@ async def test_malformed_wrapper_rows_and_caps_are_incomplete() -> None:
 
 
 @pytest.mark.asyncio
+async def test_image_pages_enforce_aggregate_bytes_before_retaining_overflow_page() -> None:
+    http = StubHttp(
+        [
+            sized_response({"items": [{"id": "retained"}]}, 3, link="<?page=2>; rel=next"),
+            sized_response({"items": [{"id": "not-retained"}]}, 3),
+        ]
+    )
+
+    result = await fetch_image_pages(http, connection(), {}, PageCaps(3, 10, 5))
+
+    assert result.rows == ({"id": "retained"},)
+    assert result.complete is False
+    assert "max_bytes" in (result.incomplete_reason or "")
+
+
+@pytest.mark.asyncio
+async def test_image_pages_accept_exact_aggregate_byte_cap() -> None:
+    http = StubHttp(
+        [
+            sized_response({"items": [{"id": "one"}]}, 3, link="<?page=2>; rel=next"),
+            sized_response({"items": [{"id": "two"}]}, 2),
+        ]
+    )
+
+    result = await fetch_image_pages(http, connection(), {}, PageCaps(3, 10, 5))
+
+    assert result.rows == ({"id": "one"}, {"id": "two"})
+    assert result.complete is True
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "bodies",
     [
@@ -312,3 +348,21 @@ async def test_summary_page_cap_is_incomplete() -> None:
     )
     assert result.complete is False
     assert "max_pages" in (result.incomplete_reason or "")
+
+
+@pytest.mark.asyncio
+async def test_summary_pages_enforce_aggregate_bytes_before_retaining_overflow_page() -> None:
+    http = StubHttp(
+        [
+            sized_response({"items": [{"id": "retained"}], "total_rows": 2}, 3),
+            sized_response({"items": [{"id": "not-retained"}], "total_rows": 2}, 3),
+        ]
+    )
+
+    result = await fetch_image_tag_summary_pages(
+        http, connection(), {"limit": 1}, PageCaps(3, 10, 5)
+    )
+
+    assert result.rows == ({"id": "retained"},)
+    assert result.complete is False
+    assert "max_bytes" in (result.incomplete_reason or "")

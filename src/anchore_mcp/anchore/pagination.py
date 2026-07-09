@@ -44,12 +44,15 @@ class JsonHttpClient(Protocol):
 class PageCaps:
     max_pages: int
     max_items: int
+    max_bytes: int = MAX_RESPONSE_BYTES
 
     def __post_init__(self) -> None:
         if type(self.max_pages) is not int or self.max_pages <= 0:
             raise ValueError("max_pages must be a positive integer")
         if type(self.max_items) is not int or self.max_items <= 0:
             raise ValueError("max_items must be a positive integer")
+        if type(self.max_bytes) is not int or not 1 <= self.max_bytes <= MAX_RESPONSE_BYTES:
+            raise ValueError(f"max_bytes must be in [1, {MAX_RESPONSE_BYTES}]")
 
 
 LIST_CAPS = PageCaps(max_pages=200, max_items=50_000)
@@ -270,6 +273,7 @@ async def fetch_image_pages(
     rows: list[JsonValue] = []
     wrapper: Wrapper | None = None
     expected_total: int | None = None
+    total_bytes = 0
 
     for page_number in range(1, caps.max_pages + 1):
         response = await client.get_json(
@@ -278,6 +282,15 @@ async def fetch_image_pages(
             params=request_params,
             max_response_bytes=MAX_RESPONSE_BYTES,
         )
+        observed_bytes = total_bytes + response.byte_length
+        if observed_bytes > caps.max_bytes:
+            return _incomplete(
+                rows,
+                page_number,
+                "Stopped at the aggregate max_bytes cap.",
+                wrapper or "items",
+            )
+        total_bytes = observed_bytes
         extracted = _rows_and_wrapper(response.data)
         if extracted is None:
             return _incomplete(
@@ -426,6 +439,7 @@ async def fetch_image_tag_summary_pages(
     )
     rows: list[JsonValue] = []
     expected_total: int | None = None
+    total_bytes = 0
 
     for page_number in range(1, caps.max_pages + 1):
         page_params = base_params.set("page", page_number).set("limit", page_limit)
@@ -435,6 +449,10 @@ async def fetch_image_tag_summary_pages(
             params=page_params,
             max_response_bytes=MAX_RESPONSE_BYTES,
         )
+        observed_bytes = total_bytes + response.byte_length
+        if observed_bytes > caps.max_bytes:
+            return _incomplete(rows, page_number, "Stopped at the aggregate max_bytes cap.")
+        total_bytes = observed_bytes
         data = response.data
         if not isinstance(data, dict) or not isinstance(data.get("items"), list):
             return _incomplete(rows, page_number, "Image tag summary wrapper was malformed.")
