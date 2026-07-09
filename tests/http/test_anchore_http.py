@@ -15,6 +15,7 @@ from anchore_mcp.anchore.http import (
     AnchoreHttpClient,
     JsonResponse,
 )
+from anchore_mcp.anchore.pagination import PageCaps, fetch_image_pages
 from anchore_mcp.config import AnchoreConnection, RetryPolicy
 from anchore_mcp.errors import (
     AnchoreHttpError,
@@ -77,6 +78,53 @@ class CancellingStream(httpx.AsyncByteStream):
 
     async def aclose(self) -> None:
         self.closed = True
+
+
+@pytest.mark.asyncio
+async def test_pagination_remaining_budget_stops_stream_before_later_chunks_and_parse() -> None:
+    first_body = b'{"items":[{}],"next":"?page=2"}'
+    overflow_stream = ChunkStream([b'{"items":', b"xx", b"later-private-chunk"])
+    request_limits: list[int] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("page") == "2":
+            return httpx.Response(200, stream=overflow_stream)
+        return httpx.Response(200, content=first_body)
+
+    class RecordingClient:
+        def __init__(self, client: AnchoreHttpClient) -> None:
+            self._client = client
+
+        async def get_json(
+            self,
+            connection: AnchoreConnection,
+            path: str,
+            *,
+            params: httpx.QueryParams | None = None,
+            max_response_bytes: int,
+            timeout: httpx.Timeout | float | None = None,
+        ) -> JsonResponse:
+            request_limits.append(max_response_bytes)
+            return await self._client.get_json(
+                connection,
+                path,
+                params=params,
+                max_response_bytes=max_response_bytes,
+                timeout=timeout,
+            )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as shared:
+        with pytest.raises(AnchoreResponseTooLargeError):
+            await fetch_image_pages(
+                RecordingClient(AnchoreHttpClient(shared)),
+                connection(),
+                {},
+                PageCaps(max_pages=3, max_items=10, max_bytes=len(first_body) + 10),
+            )
+
+    assert request_limits == [len(first_body) + 10, 10]
+    assert overflow_stream.consumed == 2
+    assert overflow_stream.closed
 
 
 @pytest.mark.asyncio

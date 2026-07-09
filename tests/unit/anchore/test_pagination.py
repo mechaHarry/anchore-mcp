@@ -241,6 +241,7 @@ async def test_image_pages_enforce_aggregate_bytes_before_retaining_overflow_pag
     assert result.rows == ({"id": "retained"},)
     assert result.complete is False
     assert "max_bytes" in (result.incomplete_reason or "")
+    assert [call[2] for call in http.calls] == [5, 2]
 
 
 @pytest.mark.asyncio
@@ -256,6 +257,19 @@ async def test_image_pages_accept_exact_aggregate_byte_cap() -> None:
 
     assert result.rows == ({"id": "one"}, {"id": "two"})
     assert result.complete is True
+    assert [call[2] for call in http.calls] == [5, 2]
+
+
+@pytest.mark.asyncio
+async def test_image_pages_stop_at_exact_byte_cap_before_following_continuation() -> None:
+    http = StubHttp([sized_response({"items": [{"id": "one"}]}, 5, link="<?page=2>; rel=next")])
+
+    result = await fetch_image_pages(http, connection(), {}, PageCaps(3, 10, 5))
+
+    assert result.rows == ({"id": "one"},)
+    assert result.complete is False
+    assert "max_bytes" in (result.incomplete_reason or "")
+    assert [call[2] for call in http.calls] == [5]
 
 
 @pytest.mark.asyncio
@@ -366,3 +380,31 @@ async def test_summary_pages_enforce_aggregate_bytes_before_retaining_overflow_p
     assert result.rows == ({"id": "retained"},)
     assert result.complete is False
     assert "max_bytes" in (result.incomplete_reason or "")
+    assert [call[2] for call in http.calls] == [5, 2]
+
+
+@pytest.mark.asyncio
+async def test_summary_pages_accept_exact_byte_cap_without_more_rows() -> None:
+    http = StubHttp([sized_response({"items": [{"id": "one"}], "total_rows": 1}, 5)])
+
+    result = await fetch_image_tag_summary_pages(
+        http, connection(), {"limit": 1}, PageCaps(3, 10, 5)
+    )
+
+    assert result.rows == ({"id": "one"},)
+    assert result.complete is True
+    assert [call[2] for call in http.calls] == [5]
+
+
+@pytest.mark.asyncio
+async def test_summary_pages_stop_at_exact_byte_cap_before_requesting_more_rows() -> None:
+    http = StubHttp([sized_response({"items": [{"id": "one"}], "total_rows": 2}, 5)])
+
+    result = await fetch_image_tag_summary_pages(
+        http, connection(), {"limit": 1}, PageCaps(3, 10, 5)
+    )
+
+    assert result.rows == ({"id": "one"},)
+    assert result.complete is False
+    assert "max_bytes" in (result.incomplete_reason or "")
+    assert [call[2] for call in http.calls] == [5]

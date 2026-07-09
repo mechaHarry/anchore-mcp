@@ -45,13 +45,21 @@ class _CountingClient:
         max_response_bytes: int,
         timeout: httpx.Timeout | float | None = None,
     ) -> JsonResponse:
+        remaining_bytes = MAX_LIST_TOTAL_BYTES - self.total_bytes
+        if remaining_bytes <= 0:
+            raise AnchoreResponseTooLargeError(
+                observed=self.total_bytes + 1, max=MAX_LIST_TOTAL_BYTES
+            )
+        effective_limit = min(max_response_bytes, remaining_bytes)
         response = await self._client.get_json(
             connection,
             path,
             params=params,
-            max_response_bytes=max_response_bytes,
+            max_response_bytes=effective_limit,
             timeout=timeout,
         )
+        if response.byte_length > effective_limit:
+            raise AnchoreResponseTooLargeError(observed=response.byte_length, max=effective_limit)
         observed = self.total_bytes + response.byte_length
         if observed > MAX_LIST_TOTAL_BYTES:
             raise AnchoreResponseTooLargeError(observed=observed, max=MAX_LIST_TOTAL_BYTES)

@@ -18,7 +18,7 @@ from anchore_mcp.tools.list_images import MAX_LIST_TOTAL_BYTES, anchore_list_ima
 class StubHttp:
     def __init__(self, responses: Sequence[JsonResponse | Exception]) -> None:
         self.responses = list(responses)
-        self.calls: list[tuple[str, httpx.QueryParams]] = []
+        self.calls: list[tuple[str, httpx.QueryParams, int]] = []
 
     async def get_json(
         self,
@@ -29,8 +29,8 @@ class StubHttp:
         max_response_bytes: int,
         timeout: httpx.Timeout | float | None = None,
     ) -> JsonResponse:
-        del connection, max_response_bytes, timeout
-        self.calls.append((path, params or httpx.QueryParams()))
+        del connection, timeout
+        self.calls.append((path, params or httpx.QueryParams(), max_response_bytes))
         response = self.responses.pop(0)
         if isinstance(response, Exception):
             raise response
@@ -88,7 +88,7 @@ async def test_list_images_applies_bounded_allowlisted_query_and_reports_rejecti
     )
 
     assert http.calls[0][0] == "/v2/openapi.json"
-    assert http.calls[1] == (
+    assert http.calls[1][:2] == (
         "/v2/images",
         httpx.QueryParams(
             {
@@ -149,6 +149,7 @@ async def test_list_images_counts_all_page_bytes_and_preserves_raw_evidence(
     assert result.structured_content["size_bytes"] == 24
     assert result.structured_content["images"][0]["owner"] == "person@example.test"
     assert len(result.structured_content["images"]) == 2
+    assert [call[2] for call in http.calls] == [MAX_LIST_TOTAL_BYTES, MAX_LIST_TOTAL_BYTES - 11]
 
 
 @pytest.mark.asyncio
@@ -175,6 +176,10 @@ async def test_list_images_enforces_one_aggregate_decoded_byte_budget(
         await anchore_list_images(fake_context(http))
 
     assert len(http.calls) == 2
+    assert [call[2] for call in http.calls] == [
+        MAX_LIST_TOTAL_BYTES,
+        MAX_LIST_TOTAL_BYTES - first_size,
+    ]
 
 
 @pytest.mark.asyncio

@@ -276,11 +276,19 @@ async def fetch_image_pages(
     total_bytes = 0
 
     for page_number in range(1, caps.max_pages + 1):
+        remaining_bytes = caps.max_bytes - total_bytes
+        if remaining_bytes <= 0:
+            return _incomplete(
+                rows,
+                page_number - 1,
+                "Stopped at the aggregate max_bytes cap.",
+                wrapper or "items",
+            )
         response = await client.get_json(
             connection,
             path,
             params=request_params,
-            max_response_bytes=MAX_RESPONSE_BYTES,
+            max_response_bytes=remaining_bytes,
         )
         observed_bytes = total_bytes + response.byte_length
         if observed_bytes > caps.max_bytes:
@@ -359,6 +367,13 @@ async def fetch_image_pages(
         seen.add(key)
         if page_number >= caps.max_pages:
             return _incomplete(rows, page_number, "Stopped at the max_pages cap.", wrapper)
+        if total_bytes >= caps.max_bytes:
+            return _incomplete(
+                rows,
+                page_number,
+                "Stopped at the aggregate max_bytes cap.",
+                wrapper,
+            )
         path, request_params = continuation.path, continuation.params
 
     return _incomplete(rows, caps.max_pages, "Stopped at the max_pages cap.", wrapper or "items")
@@ -442,12 +457,15 @@ async def fetch_image_tag_summary_pages(
     total_bytes = 0
 
     for page_number in range(1, caps.max_pages + 1):
+        remaining_bytes = caps.max_bytes - total_bytes
+        if remaining_bytes <= 0:
+            return _incomplete(rows, page_number - 1, "Stopped at the aggregate max_bytes cap.")
         page_params = base_params.set("page", page_number).set("limit", page_limit)
         response = await client.get_json(
             connection,
             image_tag_summaries_route(connection.api_version),
             params=page_params,
-            max_response_bytes=MAX_RESPONSE_BYTES,
+            max_response_bytes=remaining_bytes,
         )
         observed_bytes = total_bytes + response.byte_length
         if observed_bytes > caps.max_bytes:
@@ -492,6 +510,8 @@ async def fetch_image_tag_summary_pages(
 
         if page_number >= caps.max_pages:
             return _incomplete(rows, page_number, "Stopped at the max_pages cap.")
+        if total_bytes >= caps.max_bytes:
+            return _incomplete(rows, page_number, "Stopped at the aggregate max_bytes cap.")
 
     return _incomplete(rows, caps.max_pages, "Stopped at the max_pages cap.")
 
