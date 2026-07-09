@@ -12,7 +12,6 @@ tags:
   - memory
   - docs-solutions
   - agents-md
-  - cursor-rules
   - compound-workflow
 ---
 
@@ -30,10 +29,7 @@ A single flat doc or ad hoc notes do not scale: new models and humans need a **r
 
 3. **Promotion rule** — When a `MEMORY.md` entry is **verified** and should outlive one chat, add a structured file under `docs/solutions/` (use **`/ce:compound`** when available for correct frontmatter and sections), then **trim or remove** the promoted content from `MEMORY.md`.
 
-4. **Agent surfaces (discoverability)** — The contract is repeated so new sessions see it without hunting:
-   - [AGENTS.md](../../../AGENTS.md) § **Knowledge flow** — authoritative rules.
-   - [README.md](../../../README.md) — short pointer at the top.
-   - [`.cursor/rules/knowledge-flow-memory-solutions.mdc`](../../../.cursor/rules/knowledge-flow-memory-solutions.mdc) — `alwaysApply` reminder for Cursor.
+4. **Agent surfaces (discoverability)** — [AGENTS.md](../../../AGENTS.md) § **Knowledge flow** is the authoritative operational rule. This solution is the expanded durable explanation; tool-specific rule directories are unnecessary duplication.
 
 ## Why This Matters
 
@@ -48,7 +44,7 @@ Without a clear split, everything lands in one place: either **`MEMORY.md` grows
 
 | Situation | Where it goes first | Next step |
 |-----------|---------------------|-----------|
-| “Prefer `pnpm run check` before PR” (team preference) | `MEMORY.md` bullet | After team agrees, optional short note in `AGENTS.md` or a `workflow-issues/` doc |
+| “Prefer `uv run python scripts/check.py` before PR” (team preference) | `MEMORY.md` bullet | After team agrees, optional short note in `AGENTS.md` or a `workflow-issues/` doc |
 | “Anchore v2 returns 400 if path uses `sbom` not `sboms`” | Promote directly to `docs/solutions/integration-issues/` | Remove duplicate prose from `MEMORY.md` if any |
 | Session scratch URLs | `MEMORY.md` only | Delete when stale |
 

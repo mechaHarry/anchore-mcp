@@ -22,7 +22,4 @@ Optional tooling: the Compound Engineering **`/ce:compound`** workflow produces 
 
 *(Append below. Dated blocks or reverse-chronological order work well.)*
 
-### 2026-04-03 (session — optional staging notes)
-
-- **Relative links in `docs/solutions/<subdir>/`:** Files one level under `docs/solutions/` use `../../` to reach `docs/` and `../../../` to reach repo root. The workflow learning had root links wrong (`../../`); fixed in compound-refresh — when linking to `AGENTS.md`, `README.md`, `MEMORY.md`, or `.cursor/` from `docs/solutions/*/*.md`, count path segments.
-- **Already fossilized (no action needed):** Knowledge flow (MEMORY → `docs/solutions/`), Cursor `alwaysApply` rule, workflow doc `docs/solutions/workflow-issues/2026-04-03-repo-knowledge-staging-and-fossilization.md`. Trim this block after the next PR if nothing here is still operationally useful.
+*(No active staging notes.)*
