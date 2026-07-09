@@ -9,6 +9,7 @@ package-lock.json
 .ruff_cache/
 .hypothesis/
 .coverage
+.coverage.*
 htmlcov/
 build/
 *.egg-info/

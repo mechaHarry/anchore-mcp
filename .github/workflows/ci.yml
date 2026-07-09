@@ -30,3 +30,21 @@ jobs:
 
       - name: Check (lint, typecheck, build, test)
         run: pnpm run check
+
+  python-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: uv sync --frozen --all-groups
+
+      - name: Check Python quality
+        run: uv run python scripts/check.py
