@@ -1,5 +1,6 @@
+from collections.abc import Iterable
 from importlib.metadata import distribution, version
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import runpy
 import shutil
 import subprocess
@@ -9,7 +10,36 @@ from types import ModuleType
 
 import anchore_mcp
 from anchore_mcp import __main__ as package_main
+import pytest
 from pytest import MonkeyPatch
+
+
+def _validated_sdist_members(members: Iterable[tarfile.TarInfo]) -> set[str]:
+    root = PurePosixPath("anchore_mcp-4.0.0")
+    files: set[str] = set()
+
+    for member in members:
+        path = PurePosixPath(member.name)
+        assert not path.is_absolute(), f"absolute tar member path is not permitted: {member.name}"
+        try:
+            relative = path.relative_to(root)
+        except ValueError as error:
+            raise AssertionError(
+                f"tar member is outside the package root: {member.name}"
+            ) from error
+        assert ".." not in relative.parts, f"parent traversal is not permitted: {member.name}"
+
+        if member.isdir():
+            continue
+        if member.issym() or member.islnk():
+            target = PurePosixPath(member.linkname)
+            unsafe = target.is_absolute() or ".." in target.parts
+            detail = " with unsafe target" if unsafe else ""
+            raise AssertionError(f"tar link entries are not permitted{detail}: {member.name}")
+        assert member.isfile(), f"non-regular tar member is not permitted: {member.name}"
+        files.add(relative.as_posix())
+
+    return files
 
 
 def test_package_and_distribution_versions_match_release() -> None:
@@ -51,6 +81,28 @@ def test_module_guard_runs_server(monkeypatch: MonkeyPatch) -> None:
     assert run_calls == [None]
 
 
+def test_sdist_member_validation_rejects_unsafe_symlink() -> None:
+    member = tarfile.TarInfo("anchore_mcp-4.0.0/src/anchore_mcp/leak")
+    member.type = tarfile.SYMTYPE
+    member.linkname = "/etc/passwd"
+
+    with pytest.raises(AssertionError, match="link"):
+        _validated_sdist_members([member])
+
+
+@pytest.mark.parametrize(
+    "member_type",
+    [tarfile.LNKTYPE, tarfile.FIFOTYPE, tarfile.CHRTYPE, tarfile.BLKTYPE],
+)
+def test_sdist_member_validation_rejects_other_non_regular_entries(member_type: bytes) -> None:
+    member = tarfile.TarInfo("anchore_mcp-4.0.0/src/anchore_mcp/leak")
+    member.type = member_type
+    member.linkname = "README.md"
+
+    with pytest.raises(AssertionError, match="not permitted"):
+        _validated_sdist_members([member])
+
+
 def test_sdist_contains_only_allowlisted_distribution_files(tmp_path: Path) -> None:
     uv = shutil.which("uv")
     assert uv is not None
@@ -68,11 +120,7 @@ def test_sdist_contains_only_allowlisted_distribution_files(tmp_path: Path) -> N
     (sdist_path,) = tmp_path.glob("*.tar.gz")
 
     with tarfile.open(sdist_path, mode="r:gz") as archive:
-        members = {
-            Path(member.name).relative_to("anchore_mcp-4.0.0").as_posix()
-            for member in archive.getmembers()
-            if member.isfile()
-        }
+        members = _validated_sdist_members(archive.getmembers())
 
     assert members == {
         ".gitignore",
