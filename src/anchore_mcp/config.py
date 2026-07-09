@@ -2,12 +2,20 @@ from collections.abc import Mapping
 import os
 from typing import Annotated, Literal, cast
 import unicodedata
-from urllib.parse import urlsplit, urlunsplit
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, model_validator
+import httpx
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    ValidationError,
+    model_validator,
+)
 
 from anchore_mcp.errors import AnchoreConfigurationError
-from anchore_mcp.models.common import ApiVersion, IdentifierText, validate_identifier_text
+from anchore_mcp.models.common import ApiVersion, validate_identifier_text
 
 
 _DEFAULT_MAX_RETRIES = 2
@@ -15,6 +23,22 @@ _DEFAULT_BASE_DELAY_MS = 300
 _DEFAULT_MAX_DELAY_MS = 8000
 _MAX_RETRIES = 10
 _MAX_DELAY_MS = 300_000
+
+
+def _validate_account_header(value: str) -> str:
+    validate_identifier_text(value)
+    if len(value) > 1024 or not value.isascii():
+        raise ValueError("account header must be at most 1024 printable ASCII characters")
+    if any(not 0x20 <= ord(character) <= 0x7E for character in value):
+        raise ValueError("account header must contain only printable ASCII characters")
+    return value
+
+
+AccountHeader = Annotated[
+    str,
+    Field(min_length=1, max_length=1024),
+    AfterValidator(_validate_account_header),
+]
 
 
 class RetryPolicy(BaseModel):
@@ -36,7 +60,7 @@ class AnchoreConnection(BaseModel):
 
     base_url: str
     token: SecretStr
-    account: IdentifierText | None = None
+    account: AccountHeader | None = None
     api_version: ApiVersion = "v2"
     retry: RetryPolicy = Field(default_factory=RetryPolicy)
 
@@ -59,28 +83,29 @@ class AnchoreConnection(BaseModel):
 
 def _normalize_base_url(value: str) -> str:
     candidate = value.strip()
-    parsed = urlsplit(candidate)
-    if parsed.scheme.casefold() != "https" or not parsed.netloc:
-        raise ValueError("base URL must use HTTPS")
     authority = candidate.partition("://")[2].split("/", 1)[0]
     if "\\" in authority or any(
-        character.isspace() or unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+        character.isspace() or unicodedata.category(character) in {"Cc", "Cs", "Zl", "Zp"}
         for character in authority
     ):
         raise ValueError("base URL authority contains whitespace or control characters")
     try:
-        hostname = parsed.hostname
-        parsed.port
-    except ValueError as error:
+        parsed = httpx.URL(candidate)
+        hostname = parsed.host
+        port = parsed.port
+        if port is not None and not 1 <= port <= 65_535:
+            raise ValueError("base URL port is out of range")
+    except (httpx.InvalidURL, UnicodeError, ValueError) as error:
         raise ValueError("base URL authority is invalid") from error
+    if parsed.scheme.casefold() != "https":
+        raise ValueError("base URL must use HTTPS")
     if not hostname or not hostname.strip("."):
         raise ValueError("base URL hostname is required")
-    if parsed.username is not None or parsed.password is not None:
+    if parsed.userinfo:
         raise ValueError("base URL must not contain credentials")
     if parsed.query or parsed.fragment:
         raise ValueError("base URL must not contain a query or fragment")
-    path = parsed.path.rstrip("/")
-    return urlunsplit(("https", parsed.netloc, path, "", ""))
+    return str(parsed).rstrip("/")
 
 
 def _required(environment: Mapping[str, str], name: str) -> str:
@@ -111,7 +136,7 @@ def load_connection(env: Mapping[str, str] | None = None) -> AnchoreConnection:
     account = account_value.strip() if account_value and account_value.strip() else None
     if account is not None:
         try:
-            validate_identifier_text(account)
+            _validate_account_header(account)
         except ValueError as error:
             raise AnchoreConfigurationError("ANCHORE_ACCOUNT is invalid") from error
     version_value = environment.get("ANCHORE_API_VERSION", "v2").strip().casefold()

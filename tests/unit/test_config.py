@@ -1,3 +1,4 @@
+import httpx
 import pytest
 from pydantic import SecretStr, ValidationError
 
@@ -203,6 +204,43 @@ def test_connection_allows_local_and_internal_style_hosts(url: str) -> None:
 def test_connection_rejects_account_header_injection() -> None:
     with pytest.raises(AnchoreConfigurationError, match="ANCHORE_ACCOUNT"):
         load_connection(required_env(ANCHORE_ACCOUNT="team\r\nx-injected: yes"))
+
+
+@pytest.mark.parametrize("url", ["https://😀.example", "https://０.example"])
+def test_connection_rejects_hosts_that_httpx_cannot_encode(url: str) -> None:
+    with pytest.raises(AnchoreConfigurationError, match="^ANCHORE_URL is invalid$"):
+        load_connection(required_env(ANCHORE_URL=url))
+
+
+def test_connection_normalizes_valid_contextual_joiner_hostname_like_httpx() -> None:
+    url = "https://نامه‌ای.example"
+
+    connection = load_connection(required_env(ANCHORE_URL=url))
+
+    assert connection.base_url == str(httpx.URL(url))
+
+
+@pytest.mark.parametrize("account", ["tëam", "团队"])
+def test_connection_rejects_non_ascii_account_headers(account: str) -> None:
+    with pytest.raises(AnchoreConfigurationError, match="^ANCHORE_ACCOUNT is invalid$"):
+        load_connection(required_env(ANCHORE_ACCOUNT=account))
+
+
+def test_connection_accepts_printable_ascii_account_header() -> None:
+    account = "team-42 / operations"
+
+    assert load_connection(required_env(ANCHORE_ACCOUNT=account)).account == account
+
+
+def test_oversized_account_has_safe_specific_error() -> None:
+    account = "a" * 1025
+
+    with pytest.raises(AnchoreConfigurationError) as caught:
+        load_connection(required_env(ANCHORE_ACCOUNT=account))
+
+    assert str(caught.value) == "ANCHORE_ACCOUNT is invalid"
+    assert account not in str(caught.value)
+    assert account not in repr(caught.value)
 
 
 def test_explicit_environment_mapping_does_not_merge_process_environment(
