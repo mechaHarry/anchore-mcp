@@ -10,6 +10,7 @@ from pydantic import SecretStr
 import pytest
 
 from anchore_mcp.anchore.http import (
+    MAX_PATH_LENGTH,
     MAX_RESPONSE_BYTES,
     AnchoreHttpClient,
     JsonResponse,
@@ -126,6 +127,8 @@ async def test_account_header_is_omitted_when_not_configured() -> None:
         "/../private",
         "/v2/./images",
         "/v2/%2e%2e/private",
+        "/v2/%2525252e%2525252e/private",
+        "/v2/%2525252e%2525252e%2525252fprivate",
         "/v2/images?secret=value",
         "/v2/images#fragment",
         "/v2\\..\\private",
@@ -144,6 +147,64 @@ async def test_unsafe_route_paths_are_rejected_before_request(path: str) -> None
             await AnchoreHttpClient(shared).get_json(connection(), path, max_response_bytes=100)
 
     assert calls == 0
+
+
+@pytest.mark.asyncio
+async def test_excessive_percent_encoding_depth_is_rejected_before_request() -> None:
+    calls = 0
+    path = f"/v2/%{'25' * 17}2e/private"
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as shared:
+        with pytest.raises(ValueError, match="encoding"):
+            await AnchoreHttpClient(shared).get_json(connection(), path, max_response_bytes=100)
+
+    assert calls == 0
+
+
+@pytest.mark.asyncio
+async def test_overlong_path_is_rejected_before_percent_processing_or_request() -> None:
+    calls = 0
+    path = "/" + ("a" * MAX_PATH_LENGTH)
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as shared:
+        with pytest.raises(ValueError, match="length"):
+            await AnchoreHttpClient(shared).get_json(connection(), path, max_response_bytes=100)
+
+    assert calls == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("path", "expected_path"),
+    [
+        ("/v2/images/sha256%3Aabc", "/anchore/v2/images/sha256:abc"),
+        ("/v2/images/sha%2F256", "/anchore/v2/images/sha/256"),
+        ("/v2/images/value%2525literal", "/anchore/v2/images/value%25literal"),
+    ],
+)
+async def test_nested_path_inspection_preserves_legitimate_route_encodings(
+    path: str, expected_path: str
+) -> None:
+    observed: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        observed.append(request)
+        return httpx.Response(200, json={})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as shared:
+        await AnchoreHttpClient(shared).get_json(connection(), path, max_response_bytes=100)
+
+    assert observed[0].url.path == expected_path
 
 
 @pytest.mark.asyncio

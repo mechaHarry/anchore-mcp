@@ -30,6 +30,8 @@ from anchore_mcp.errors import (
 
 
 MAX_RESPONSE_BYTES = 100 * 1024 * 1024
+MAX_PATH_LENGTH = 16 * 1024
+MAX_PATH_DECODE_STAGES = 16
 DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
 
 _JSON_ADAPTER: TypeAdapter[JsonValue] = TypeAdapter(JsonValue)
@@ -182,6 +184,8 @@ def _validate_response_limit(value: int) -> None:
 
 
 def _compose_url(base_url: str, path: str) -> httpx.URL:
+    if len(path) > MAX_PATH_LENGTH:
+        raise ValueError(f"path length must not exceed {MAX_PATH_LENGTH} characters")
     if not path.startswith("/") or path.startswith("//"):
         raise ValueError("path must be an absolute-origin path beginning with one slash")
     if any(ord(character) < 0x20 or ord(character) == 0x7F for character in path):
@@ -193,16 +197,26 @@ def _compose_url(base_url: str, path: str) -> httpx.URL:
     if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment or parsed.path != path:
         raise ValueError("path must not contain an origin, query, or fragment")
 
-    decoded = path
-    for _ in range(3):
-        decoded_next = unquote(decoded)
-        if decoded_next == decoded:
-            break
-        decoded = decoded_next
-    if "\\" in decoded or any(segment in {".", ".."} for segment in decoded.split("/")):
-        raise ValueError("path must not contain dot traversal segments")
+    _inspect_nested_path_encoding(path)
 
     return httpx.URL(f"{base_url.rstrip('/')}{path}")
+
+
+def _inspect_nested_path_encoding(path: str) -> None:
+    current = path
+    for stage in range(MAX_PATH_DECODE_STAGES + 1):
+        normalized = current.replace("\\", "/")
+        if "\\" in current or any(segment in {".", ".."} for segment in normalized.split("/")):
+            raise ValueError("path must not contain dot traversal segments")
+
+        decoded = unquote(current)
+        if decoded == current:
+            return
+        if stage == MAX_PATH_DECODE_STAGES:
+            raise ValueError("path has excessive nested percent encoding")
+        current = decoded
+
+    raise RuntimeError("nested path inspection exhausted unexpectedly")
 
 
 def _http_error(status: int) -> AnchoreHttpError:
