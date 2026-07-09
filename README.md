@@ -1,59 +1,44 @@
 # anchore-mcp
 
-Local, read-only MCP server for Anchore Enterprise. It exposes image listing, vulnerability, SBOM, policy, image-detail, policy-blocker, and remediation-handoff capabilities through FastMCP 3.4.3 over stdio.
+Read-only MCP server for Anchore Enterprise. It runs locally over **stdio** and exposes eight image, vulnerability, SBOM, policy, detail, and remediation-evidence tools to Codex.
 
-Each process talks to one HTTPS Anchore deployment. Configure multiple MCP entries to use multiple deployments.
+## Install and run
 
-## Requirements and setup
-
-- Python 3.12
-- [`uv`](https://docs.astral.sh/uv/)
+Prerequisites: Python 3.12 and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
-uv sync --frozen --all-groups
-uv run python scripts/check.py
-```
-
-For a quicker test loop:
-
-```bash
-uv run pytest -q
-```
-
-## Configuration
-
-The server recognizes exactly these seven environment variables; see [env.example](env.example):
-
-| Variable | Required | Description |
-|---|---:|---|
-| `ANCHORE_URL` | Yes for real calls | HTTPS Anchore API base, such as `https://anchore.example` |
-| `ANCHORE_TOKEN` | Yes for real calls | Basic-auth password; username is the literal `_api_key` |
-| `ANCHORE_ACCOUNT` | No | Optional `x-anchore-account` value |
-| `ANCHORE_API_VERSION` | No | `v2` by default; `v1` for a compatible legacy deployment |
-| `ANCHORE_HTTP_MAX_RETRIES` | No | Additional idempotent-GET attempts, default `2` |
-| `ANCHORE_HTTP_RETRY_BASE_MS` | No | Exponential-backoff base, default `300` ms |
-| `ANCHORE_HTTP_RETRY_MAX_MS` | No | Backoff cap, default `8000` ms |
-
-Retries apply only to transient 429 and 502–504 responses, `ConnectError`, and `ConnectTimeout`. Read, write, pool, and other request timeouts are not retried. Requests are bounded, redirects are disabled, and configuration is loaded at tool-call time. The MCP handshake and tool discovery therefore work without credentials; `anchore_connection_info` reports an unconfigured state normally.
-
-Never commit credentials or print raw MCP environment configuration. Prefer the [protected launcher pattern](examples/codex-agent-setup/README.md).
-
-## Run
-
-```bash
+git clone https://github.com/mechaHarry/anchore-mcp.git
+cd anchore-mcp
+uv sync --frozen
 uv run --frozen anchore-mcp
 ```
 
-The process speaks MCP JSON-RPC over stdin/stdout only. It does not expose HTTP, SSE, or a listening port. Keep stdin open for the session; EOF causes a clean exit.
+The last command starts the stdio server and waits for an MCP host. For normal use, configure Codex instead of running it in a separate terminal.
 
-## MCP configuration
+## Environment
 
-Use a local command entry, not a URL-and-headers entry. An example Codex configuration is:
+The server recognizes exactly these seven variables:
+
+| Variable | Required | Default / meaning |
+|---|---:|---|
+| `ANCHORE_URL` | Yes | HTTPS Anchore API base |
+| `ANCHORE_TOKEN` | Yes | API token; Basic-auth username is the literal `_api_key` |
+| `ANCHORE_ACCOUNT` | No | Optional `x-anchore-account` value |
+| `ANCHORE_API_VERSION` | No | `v2`; use `v1` only for a compatible legacy deployment |
+| `ANCHORE_HTTP_MAX_RETRIES` | No | `2` additional attempts |
+| `ANCHORE_HTTP_RETRY_BASE_MS` | No | `300` ms exponential-backoff base |
+| `ANCHORE_HTTP_RETRY_MAX_MS` | No | `8000` ms backoff cap |
+
+Retries apply only to idempotent GET `ConnectError`, `ConnectTimeout`, and HTTP 429/502/503/504 failures. Read, write, pool, and other request timeouts are not retried.
+
+## Minimal Codex configuration
+
+Add this to your Codex `config.toml`, replacing only the absolute executable and repository paths and the synthetic environment values:
 
 ```toml
 [mcp_servers.anchore-mcp]
 command = "/absolute/path/to/uv"
-args = ["run", "--frozen", "anchore-mcp"]
+args = ["run", "--frozen", "--project", "/absolute/path/to/anchore-mcp", "anchore-mcp"]
 cwd = "/absolute/path/to/anchore-mcp"
 enabled = true
 startup_timeout_sec = 20
@@ -68,71 +53,52 @@ enabled_tools = [
   "anchore_image_detail",
   "anchore_remediation_handoff",
 ]
+
+[mcp_servers.anchore-mcp.env]
+ANCHORE_URL = "https://anchore.example"
+ANCHORE_TOKEN = "synthetic-replace-me"
+ANCHORE_ACCOUNT = "synthetic-account"
+ANCHORE_API_VERSION = "v2"
+ANCHORE_HTTP_MAX_RETRIES = "2"
+ANCHORE_HTTP_RETRY_BASE_MS = "300"
+ANCHORE_HTTP_RETRY_MAX_MS = "8000"
 ```
 
-All eight registrations carry advisory MCP annotations: `readOnlyHint=true`, `idempotentHint=true`, `destructiveHint=false`, and `openWorldHint=true`. Host-side allowlists and approval policy remain authoritative; audit new tools before enabling them.
+Codex configuration inspection can display inline environment values. Keep the file out of source control, restrict it to mode `0600`, and never paste its raw contents into diagnostics:
 
-Cursor users should select a command/stdio server, use the same `uv` command and arguments, and keep credentials in a protected launcher environment rather than inline JSON. The MCP child does not necessarily inherit an interactive shell profile.
+```bash
+chmod 600 ~/.codex/config.toml
+```
 
-## Native typed inputs
+For credentials stored separately from Codex TOML, use the [protected JSON launcher setup](examples/codex-agent-setup/README.md).
 
-Digest-keyed tools accept a discriminated `locator` object:
+## Verify
+
+Restart Codex after changing its configuration, then use:
+
+```text
+Use the anchore-mcp MCP server. Call anchore_connection_info. Return only
+whether it is configured and the API version. Do not print the URL, account,
+MCP configuration, or environment values.
+```
+
+Image tools use a typed locator. For example, `anchore_image_detail` accepts:
 
 ```json
-{"locator":{"kind":"digest","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
+{
+  "locator": {
+    "kind": "digest",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}
 ```
 
-or an exact registry-qualified tagged reference:
-
-```json
-{"locator":{"kind":"reference","reference":"registry.example/team/app:1.0"}}
-```
-
-`anchore_policy_blocking_vulnerabilities` additionally accepts a repository locator:
-
-```json
-{"locator":{"kind":"repository","registry":"registry.example","repository":"team/app"}}
-```
-
-Short references such as `app:1.0` are rejected. Reference resolution uses `GET /v2/images?full_tag=...` (`fulltag` in v1) as a narrowing hint and trusts only exact bounded row evidence. Incomplete enumeration fails closed instead of becoming `no_match`. Repository selection uses the verified v2 image-tag summary route; legacy v1 requires bounded same-origin OpenAPI capability proof.
-
-Policy `tag` and `base_digest` inputs are separate optional `/check` context and are never inferred from an arbitrary caller string.
-
-## Results and evidence safety
-
-Successful tools return concise text plus native structured content. Structured results include non-secret deployment context, warnings, selection/enumeration state where relevant, exact byte sizes, and the capability payload. Free-form text is PII-masked; raw structured Anchore evidence is intentionally unmasked for machine use and must be handled as sensitive data. Raw evidence is never copied wholesale to stderr.
-
-The remediation handoff uses schema version `2.0.0`; see [the handoff contract](docs/remediation-handoff-schema.md). It is Anchore evidence, not remediation instruction.
-
-## API route notes
-
-- Default v2 images: `GET /v2/images`
-- Vulnerabilities: `GET /v2/images/{digest}/vuln/all`
-- Image SBOM: `GET /v2/images/{digest}/sboms/{native-json|spdx-json|cyclonedx-json}` — `sboms` is plural
-- Policy: `GET /v2/images/{digest}/check`
-- Detail: `GET /v2/images/{digest}`
-- Repository summaries: `GET /v2/summaries/image-tags`
-
-List responses may use `items`, `images`, or a top-level array depending on version. Pagination, total bytes, evidence traversal, candidates, OpenAPI documents, and response bodies are capped. The configured deployment’s version-matched `/v1/openapi.json` or `/v2/openapi.json` is authoritative for deployment-specific list parameters; OpenAPI is fetched from the same origin without redirects.
-
-See [Anchore API research notes](docs/research/anchore-api-notes.md) for details.
+Replace the synthetic digest with an approved image digest before making a real call. Structured Anchore evidence is intentionally unmasked; request only the fields you need and handle the result as sensitive data.
 
 ## Troubleshooting
 
-- Discovery works but calls fail: set `ANCHORE_URL` and `ANCHORE_TOKEN` in the MCP child environment, not only your terminal.
-- URL rejected: only HTTPS URLs without embedded credentials, query, or fragment are accepted.
-- Wrong or non-JSON route response: confirm `ANCHORE_API_VERSION`; Enterprise 5+ normally uses v2.
-- Host drops the process: ensure stdin remains open and no wrapper writes a preamble to stdout.
-- Reference cannot be proven: use a fully qualified tagged reference or digest and inspect the explicit enumeration/selection outcome.
+- **Missing configuration:** the MCP child needs `ANCHORE_URL` and `ANCHORE_TOKEN`; values exported only in an interactive terminal may not reach Codex.
+- **HTTPS:** `ANCHORE_URL` must be HTTPS and must not contain embedded credentials, a query, or a fragment.
+- **stdio:** configure a local command, not an HTTP/SSE URL; keep stdin open and do not use wrappers that print banners to stdout.
 
-## Development
-
-The canonical local quality gate is:
-
-```bash
-uv run python scripts/check.py
-```
-
-Focused checks remain available through `uv run pytest`, `uv run ruff`, and `uv run pyright`. The package is Python 4.0.0, managed by `uv`, and tested against the locked FastMCP 3.4.3 contract.
-
-Working notes live in [MEMORY.md](MEMORY.md); durable verified learnings live under [docs/solutions](docs/solutions). See [AGENTS.md](AGENTS.md#knowledge-flow) for the promotion flow.
+See the [remediation handoff contract](docs/remediation-handoff-schema.md) and [Anchore API notes](docs/research/anchore-api-notes.md) for advanced integration details.
