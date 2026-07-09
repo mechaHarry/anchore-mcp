@@ -1,5 +1,7 @@
+from collections.abc import Callable
 from typing import cast
 
+import httpx
 import pytest
 
 from anchore_mcp.anchore.routes import (
@@ -71,6 +73,35 @@ def test_all_typed_sbom_formats_are_wire_literals(format_name: SbomFormat) -> No
 )
 def test_digest_is_encoded_as_exactly_one_path_segment(digest: str, encoded: str) -> None:
     assert image_by_digest_route("v2", digest) == f"/v2/images/{encoded}"
+
+
+@pytest.mark.parametrize("digest", ["", ".", ".."])
+def test_all_digest_routes_reject_empty_and_dot_segments(digest: str) -> None:
+    route_builders: tuple[Callable[[str], str], ...] = (
+        lambda value: image_vulnerabilities_route("v2", value),
+        lambda value: image_sbom_route("v2", value, "native-json"),
+        lambda value: image_by_digest_route("v2", value),
+        lambda value: image_policy_check_route("v2", value),
+    )
+
+    for build_route in route_builders:
+        with pytest.raises(ValueError, match="digest"):
+            build_route(digest)
+
+
+def test_legitimate_dot_digest_routes_do_not_escape_when_joined_to_httpx_base() -> None:
+    digest = "sha256:abc..def.json"
+    routes = (
+        image_vulnerabilities_route("v2", digest),
+        image_sbom_route("v2", digest, "spdx-json"),
+        image_by_digest_route("v2", digest),
+        image_policy_check_route("v2", digest),
+    )
+
+    for route in routes:
+        composed = httpx.URL("https://anchore.example").join(route)
+        assert str(composed) == f"https://anchore.example{route}"
+        assert composed.path.startswith("/v2/images/sha256:abc..def.json")
 
 
 @pytest.mark.parametrize(

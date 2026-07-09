@@ -58,13 +58,14 @@ def parse_retry_after(value: str | None, *, now: datetime, max_delay_s: float) -
 def backoff_seconds(
     attempt_index: int,
     policy: RetryPolicy,
+    *,
     random_value: float,
     retry_after: float | None = None,
 ) -> float:
     """Return full-jitter backoff for a zero-based retry attempt."""
 
-    if attempt_index < 0:
-        raise ValueError("attempt_index must be nonnegative")
+    if type(attempt_index) is not int or attempt_index < 0:
+        raise ValueError("attempt_index must be a nonnegative integer")
     if not math.isfinite(random_value) or not 0 <= random_value <= 1:
         raise ValueError("random_value must be finite and between 0 and 1")
 

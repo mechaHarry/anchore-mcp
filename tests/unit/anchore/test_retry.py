@@ -1,7 +1,9 @@
 import asyncio
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
+from inspect import Parameter, signature
 import math
+from typing import cast
 
 import pytest
 
@@ -53,6 +55,18 @@ def test_retry_after_accepts_imf_fixdate_with_deterministic_clock() -> None:
     assert parse_retry_after("Thu, 09 Jul 2026 12:01:00 GMT", now=now, max_delay_s=8) == 8
 
 
+def test_retry_after_rejects_huge_malformed_date_without_exception() -> None:
+    malformed = "Thu, 09 Jul 2026 " + ("x" * 100_000) + " GMT"
+
+    assert parse_retry_after(malformed, now=datetime(2026, 7, 9, tzinfo=UTC), max_delay_s=8) is None
+
+
+def test_retry_after_accepts_aware_non_utc_clock_without_exception() -> None:
+    now = datetime(2026, 7, 9, 17, 0, 0, tzinfo=timezone(timedelta(hours=5)))
+
+    assert parse_retry_after("Thu, 09 Jul 2026 12:00:05 GMT", now=now, max_delay_s=8) == 5
+
+
 @pytest.mark.parametrize(
     "value",
     [
@@ -90,6 +104,18 @@ def test_backoff_uses_zero_based_attempt_index_and_full_jitter() -> None:
     assert math.isclose(backoff_seconds(1, policy, random_value=0.5), 0.3)
     assert math.isclose(backoff_seconds(2, policy, random_value=1.0), 1.2)
     assert backoff_seconds(2, policy, random_value=0.0) == 0
+
+
+def test_backoff_random_value_is_keyword_only() -> None:
+    parameter = signature(backoff_seconds).parameters["random_value"]
+
+    assert parameter.kind is Parameter.KEYWORD_ONLY
+
+
+@pytest.mark.parametrize("attempt_index", [True, False, 1.0, math.inf, math.nan, "1"])
+def test_backoff_rejects_non_integer_attempt_indexes(attempt_index: object) -> None:
+    with pytest.raises(ValueError, match="attempt_index"):
+        backoff_seconds(cast(int, attempt_index), RetryPolicy(), random_value=0.5)
 
 
 def test_backoff_caps_before_jitter_and_avoids_huge_exponent_work() -> None:

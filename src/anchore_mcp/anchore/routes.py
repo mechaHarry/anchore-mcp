@@ -23,6 +23,8 @@ def _version_prefix(version: ApiVersion) -> str:
 
 
 def _digest_segment(digest: str) -> str:
+    if digest in {"", ".", ".."}:
+        raise ValueError("image digest must not be empty or a dot segment")
     return quote(digest, safe="")
 
 
