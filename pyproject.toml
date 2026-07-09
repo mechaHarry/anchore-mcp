@@ -63,4 +63,4 @@ line-length = 100
 [tool.pyright]
 typeCheckingMode = "strict"
 pythonVersion = "3.12"
-include = ["src", "tests", "scripts"]
+include = ["src", "tests"]

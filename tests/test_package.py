@@ -46,7 +46,7 @@ def test_module_guard_runs_server(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "anchore_mcp.server", fake_server)
     main_path = Path(package_main.__file__)
 
-    runpy.run_path(main_path, run_name="__main__")
+    runpy.run_path(str(main_path), run_name="__main__")
 
     assert run_calls == [None]
 
@@ -82,5 +82,11 @@ def test_sdist_contains_only_allowlisted_distribution_files(tmp_path: Path) -> N
         "pyproject.toml",
         "src/anchore_mcp/__init__.py",
         "src/anchore_mcp/__main__.py",
+        "src/anchore_mcp/config.py",
+        "src/anchore_mcp/errors.py",
+        "src/anchore_mcp/models/__init__.py",
+        "src/anchore_mcp/models/common.py",
+        "src/anchore_mcp/models/locators.py",
+        "src/anchore_mcp/models/results.py",
     }
     assert sdist_path.stat().st_size < 100_000
