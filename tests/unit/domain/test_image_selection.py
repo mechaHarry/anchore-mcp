@@ -10,7 +10,11 @@ from anchore_mcp.anchore.http import JsonResponse
 from anchore_mcp.anchore.openapi import OpenApiCache
 from anchore_mcp.anchore.pagination import PageCaps
 from anchore_mcp.config import AnchoreConnection
-from anchore_mcp.domain.selection import normalize_timestamp, select_image_for_policy
+from anchore_mcp.domain.selection import (
+    MAX_TIMESTAMP_STRING_LENGTH,
+    normalize_timestamp,
+    select_image_for_policy,
+)
 from anchore_mcp.errors import EnumerationIncompleteError, TrustEvidenceError
 from anchore_mcp.models.locators import DigestLocator, ReferenceLocator, RepositoryLocator
 
@@ -138,6 +142,34 @@ async def test_missing_timestamp_on_digest_candidate_fails_closed() -> None:
                         },
                         {"image_digest": "sha256:unknown", "full_tag": REFERENCE},
                         {"full_tag": REFERENCE},
+                    ]
+                }
+            ]
+        }
+    )
+
+    with pytest.raises(TrustEvidenceError, match="timestamp evidence"):
+        await select_image_for_policy(
+            http,
+            connection(),
+            ReferenceLocator(kind="reference", reference=REFERENCE),
+            OpenApiCache(http),
+        )
+
+
+@pytest.mark.asyncio
+async def test_invalid_primary_timestamp_cannot_fall_through_to_valid_alias() -> None:
+    http = StubHttp(
+        {
+            "/v2/images": [
+                {
+                    "items": [
+                        {
+                            "image_digest": "sha256:invalid-primary",
+                            "full_tag": REFERENCE,
+                            "analyzed_at": True,
+                            "createdAt": "2099-01-01T00:00:00Z",
+                        }
                     ]
                 }
             ]
@@ -371,3 +403,12 @@ def test_timestamp_normalizes_iso_epoch_seconds_and_milliseconds() -> None:
     assert normalize_timestamp("2000-01-01T00:00:00Z") == expected
     assert normalize_timestamp(946_684_800) == expected
     assert normalize_timestamp(946_684_800_000) == expected
+
+
+def test_timestamp_string_length_is_bounded_before_normalization() -> None:
+    value = "2000-01-01T00:00:00Z"
+    padded = (" " * (MAX_TIMESTAMP_STRING_LENGTH - len(value))) + value
+
+    assert normalize_timestamp(padded) == datetime(2000, 1, 1, tzinfo=UTC)
+    with pytest.raises(TrustEvidenceError, match="timestamp"):
+        normalize_timestamp(f" {padded}")

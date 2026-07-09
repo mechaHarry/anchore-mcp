@@ -42,6 +42,7 @@ TIMESTAMP_KEYS = (
     "createdAt",
 )
 MAX_PLAUSIBLE_EPOCH_SECONDS = 10_000_000_000
+MAX_TIMESTAMP_STRING_LENGTH = 128
 _ISO_TIMESTAMP = re.compile(
     r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}"
     r"(?:\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})$"
@@ -86,6 +87,8 @@ def normalize_timestamp(value: object) -> datetime:
         except (OverflowError, OSError, ValueError):
             raise TrustEvidenceError("Analysis timestamp evidence was out of range") from None
     if isinstance(value, str):
+        if len(value) > MAX_TIMESTAMP_STRING_LENGTH:
+            raise TrustEvidenceError("Analysis timestamp evidence was invalid")
         normalized = value.strip()
         if not _ISO_TIMESTAMP.fullmatch(normalized):
             raise TrustEvidenceError("Analysis timestamp evidence was invalid")
@@ -101,12 +104,8 @@ def normalize_timestamp(value: object) -> datetime:
 
 def _timestamp_from_row(row: dict[object, object]) -> datetime | None:
     for key in TIMESTAMP_KEYS:
-        if key not in row:
-            continue
-        try:
+        if key in row:
             return normalize_timestamp(row[key])
-        except TrustEvidenceError:
-            continue
     return None
 
 
