@@ -1,6 +1,7 @@
 from hypothesis import given, settings, strategies as st
+import pytest
 
-from anchore_mcp.domain.policy import json_within_limits
+from anchore_mcp.domain.policy import interpret_policy, json_within_limits
 from anchore_mcp.domain.resolution import (
     MAX_DISAMBIGUATION_CANDIDATES,
     MAX_HINTS_PER_DIGEST,
@@ -8,6 +9,8 @@ from anchore_mcp.domain.resolution import (
     Disambiguation,
     resolve_image_rows,
 )
+from anchore_mcp.errors import EnumerationIncompleteError
+from anchore_mcp.tools.common import tool_error
 
 
 json_scalars = st.none() | st.booleans() | st.integers() | st.text(max_size=100)
@@ -23,6 +26,20 @@ json_values = st.recursive(
 @given(json_values)
 def test_hostile_json_shapes_are_scanned_without_internal_exceptions(value: object) -> None:
     assert isinstance(json_within_limits(value), bool)
+
+
+@settings(max_examples=25, derandomize=True)
+@given(st.text(max_size=100))
+def test_hostile_policy_overflow_maps_to_static_safe_tool_error(suffix: str) -> None:
+    canary = "private-policy-evidence"
+    payload = {"status": f"{canary}{suffix}{'x' * 4_097}"}
+
+    with pytest.raises(EnumerationIncompleteError) as caught:
+        interpret_policy(payload)
+
+    mapped = tool_error(caught.value)
+    assert str(mapped) == "Policy evidence exceeded interpretation limits"
+    assert canary not in str(mapped)
 
 
 def test_disambiguation_containers_never_exceed_constants() -> None:

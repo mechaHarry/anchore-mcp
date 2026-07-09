@@ -4,6 +4,7 @@ from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import socket
 import threading
 from typing import cast
 
@@ -44,6 +45,52 @@ class _Handler(BaseHTTPRequestHandler):
         del format, args
 
 
+class SlowTlsHandshakeServer:
+    """Accept one TCP connection and hold it before completing a TLS handshake."""
+
+    def __init__(self) -> None:
+        self._listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._listener.bind(("127.0.0.1", 0))
+        self._listener.listen(1)
+        self._stop = threading.Event()
+        self.connection_accepted = threading.Event()
+        self._connection: socket.socket | None = None
+        self._thread = threading.Thread(
+            target=self._serve,
+            name="synthetic-slow-tls",
+            daemon=True,
+        )
+
+    @property
+    def base_url(self) -> str:
+        host, port = cast(tuple[str, int], self._listener.getsockname())
+        return f"https://{host}:{port}"
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def _serve(self) -> None:
+        try:
+            connection, _address = self._listener.accept()
+        except OSError:
+            return
+        self._connection = connection
+        self.connection_accepted.set()
+        try:
+            self._stop.wait()
+        finally:
+            connection.close()
+
+    def close(self) -> None:
+        self._stop.set()
+        self._listener.close()
+        connection = self._connection
+        if connection is not None:
+            connection.close()
+        self._thread.join(timeout=2)
+
+
 @contextmanager
 def synthetic_anchore_server(
     routes: Mapping[str, JsonValue],
@@ -57,3 +104,13 @@ def synthetic_anchore_server(
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+@contextmanager
+def slow_tls_handshake_server() -> Generator[SlowTlsHandshakeServer]:
+    server = SlowTlsHandshakeServer()
+    server.start()
+    try:
+        yield server
+    finally:
+        server.close()

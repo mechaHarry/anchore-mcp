@@ -1,10 +1,13 @@
 import asyncio
 import os
 from pathlib import Path
+import sys
 
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 import pytest
+
+from tests.support.anchore_server import slow_tls_handshake_server
 
 
 ROOT = Path(__file__).parents[2]
@@ -21,7 +24,24 @@ EXPECTED_TOOLS = {
 
 
 def clean_environment() -> dict[str, str]:
-    return {key: value for key, value in os.environ.items() if not key.startswith("ANCHORE_")}
+    excluded_prefixes = ("ANCHORE_", "COV_CORE_", "COVERAGE_")
+    return {
+        key: value for key, value in os.environ.items() if not key.startswith(excluded_prefixes)
+    }
+
+
+def test_clean_environment_excludes_test_instrumentation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANCHORE_TOKEN", "test-token")
+    monkeypatch.setenv("COV_CORE_SOURCE", "anchore_mcp")
+    monkeypatch.setenv("COVERAGE_PROCESS_START", "pyproject.toml")
+
+    environment = clean_environment()
+
+    assert "ANCHORE_TOKEN" not in environment
+    assert "COV_CORE_SOURCE" not in environment
+    assert "COVERAGE_PROCESS_START" not in environment
 
 
 def active_stdio_transport_tasks() -> list[asyncio.Task[object]]:
@@ -30,6 +50,34 @@ def active_stdio_transport_tasks() -> list[asyncio.Task[object]]:
         for task in asyncio.all_tasks()
         if not task.done() and "_stdio_transport_connect_task" in repr(task.get_coro())
     ]
+
+
+async def wait_for_process(
+    process: asyncio.subprocess.Process,
+    *,
+    timeout: float,
+) -> int:
+    try:
+        return await asyncio.wait_for(process.wait(), timeout=timeout)
+    except BaseException:
+        if process.returncode is None:
+            process.kill()
+        await process.wait()
+        raise
+
+
+@pytest.mark.asyncio
+async def test_timed_out_process_is_reaped() -> None:
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        "import time; time.sleep(60)",
+    )
+
+    with pytest.raises(TimeoutError):
+        await wait_for_process(process, timeout=0.01)
+
+    assert process.returncode is not None
 
 
 @pytest.mark.asyncio
@@ -65,7 +113,7 @@ async def test_stdio_eof_exits_within_two_seconds() -> None:
     assert process.stdin is not None
     process.stdin.close()
 
-    return_code = await asyncio.wait_for(process.wait(), timeout=2)
+    return_code = await wait_for_process(process, timeout=2)
     stdout, _stderr = await process.communicate()
 
     assert return_code == 0
@@ -74,26 +122,28 @@ async def test_stdio_eof_exits_within_two_seconds() -> None:
 
 @pytest.mark.asyncio
 async def test_cancelled_stdio_request_leaves_no_transport_process() -> None:
-    environment = clean_environment()
-    environment.update(
-        {
-            "ANCHORE_URL": "https://127.0.0.1:9",
-            "ANCHORE_TOKEN": "synthetic-test-token",
-            "ANCHORE_HTTP_MAX_RETRIES": "0",
-        }
-    )
-    transport = StdioTransport(
-        command="uv",
-        args=["run", "--frozen", "anchore-mcp"],
-        env=environment,
-        cwd=str(ROOT),
-        keep_alive=False,
-    )
-    async with Client(transport) as client:
-        request = asyncio.create_task(client.call_tool("anchore_list_images", {}))
-        await asyncio.sleep(0)
-        request.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await request
+    with slow_tls_handshake_server() as server:
+        environment = clean_environment()
+        environment.update(
+            {
+                "ANCHORE_URL": server.base_url,
+                "ANCHORE_TOKEN": "synthetic-test-token",
+                "ANCHORE_HTTP_MAX_RETRIES": "0",
+            }
+        )
+        transport = StdioTransport(
+            command="uv",
+            args=["run", "--frozen", "anchore-mcp"],
+            env=environment,
+            cwd=str(ROOT),
+            keep_alive=False,
+        )
+        async with Client(transport) as client:
+            request = asyncio.create_task(client.call_tool("anchore_list_images", {}))
+            established = await asyncio.to_thread(server.connection_accepted.wait, 2)
+            assert established is True
+            request.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await request
 
     assert active_stdio_transport_tasks() == []
