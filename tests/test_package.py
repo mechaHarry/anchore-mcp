@@ -152,6 +152,7 @@ def test_sdist_contains_only_allowlisted_distribution_files(tmp_path: Path) -> N
         "src/anchore_mcp/domain/__init__.py",
         "src/anchore_mcp/domain/images.py",
         "src/anchore_mcp/domain/resolution.py",
+        "src/anchore_mcp/domain/selection.py",
         "src/anchore_mcp/errors.py",
         "src/anchore_mcp/models/__init__.py",
         "src/anchore_mcp/models/common.py",
