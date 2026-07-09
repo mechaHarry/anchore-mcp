@@ -82,6 +82,8 @@ def test_control_normalization_cannot_reveal_obfuscated_credentials() -> None:
         "token[value]=hidden-token",
         "other[access_token]=hidden-token",
         "api%5Fkey%5B0%5D=hidden-token",
+        "credentials%2Etoken=hidden-token",
+        "credentials%252Etoken=hidden-token",
         "access-token=hidden-token",
         "client%2Dsecret=hidden-token",
         "token=hidden-token",

@@ -69,9 +69,12 @@ def _redact_patterns(text: str) -> str:
             if next_key == decoded_key:
                 break
             decoded_key = next_key
-        key_components = [
+        raw_components = [
             decoded_key.partition("[")[0],
             *re.findall(r"\[([^\]]*)\]", decoded_key),
+        ]
+        key_components = [
+            component for raw_component in raw_components for component in raw_component.split(".")
         ]
         canonical_components = {
             "".join(character for character in component.casefold() if character.isalnum())
