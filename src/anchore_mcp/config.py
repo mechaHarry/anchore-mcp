@@ -1,12 +1,13 @@
 from collections.abc import Mapping
 import os
 from typing import Annotated, Literal, cast
+import unicodedata
 from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, model_validator
 
 from anchore_mcp.errors import AnchoreConfigurationError
-from anchore_mcp.models.common import ApiVersion
+from anchore_mcp.models.common import ApiVersion, IdentifierText, validate_identifier_text
 
 
 _DEFAULT_MAX_RETRIES = 2
@@ -17,7 +18,7 @@ _MAX_DELAY_MS = 300_000
 
 
 class RetryPolicy(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
     max_retries: Annotated[int, Field(ge=0, le=_MAX_RETRIES)] = _DEFAULT_MAX_RETRIES
     base_delay_ms: Annotated[int, Field(ge=0, le=_MAX_DELAY_MS)] = _DEFAULT_BASE_DELAY_MS
@@ -31,11 +32,11 @@ class RetryPolicy(BaseModel):
 
 
 class AnchoreConnection(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
     base_url: str
     token: SecretStr
-    account: str | None = None
+    account: IdentifierText | None = None
     api_version: ApiVersion = "v2"
     retry: RetryPolicy = Field(default_factory=RetryPolicy)
 
@@ -61,6 +62,19 @@ def _normalize_base_url(value: str) -> str:
     parsed = urlsplit(candidate)
     if parsed.scheme.casefold() != "https" or not parsed.netloc:
         raise ValueError("base URL must use HTTPS")
+    authority = candidate.partition("://")[2].split("/", 1)[0]
+    if "\\" in authority or any(
+        character.isspace() or unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+        for character in authority
+    ):
+        raise ValueError("base URL authority contains whitespace or control characters")
+    try:
+        hostname = parsed.hostname
+        parsed.port
+    except ValueError as error:
+        raise ValueError("base URL authority is invalid") from error
+    if not hostname or not hostname.strip("."):
+        raise ValueError("base URL hostname is required")
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("base URL must not contain credentials")
     if parsed.query or parsed.fragment:
@@ -95,6 +109,11 @@ def load_connection(env: Mapping[str, str] | None = None) -> AnchoreConnection:
     token = _required(environment, "ANCHORE_TOKEN")
     account_value = environment.get("ANCHORE_ACCOUNT")
     account = account_value.strip() if account_value and account_value.strip() else None
+    if account is not None:
+        try:
+            validate_identifier_text(account)
+        except ValueError as error:
+            raise AnchoreConfigurationError("ANCHORE_ACCOUNT is invalid") from error
     version_value = environment.get("ANCHORE_API_VERSION", "v2").strip().casefold()
     if not version_value:
         version_value = "v2"

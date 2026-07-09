@@ -1,7 +1,9 @@
 import json
+import math
 from datetime import UTC, datetime
 
-from pydantic import JsonValue
+from pydantic import JsonValue, ValidationError
+import pytest
 
 from anchore_mcp.models.common import DeploymentContext, EnumerationState, SelectedImage
 from anchore_mcp.models.results import (
@@ -173,3 +175,46 @@ def test_list_schema_reports_payload_size_and_enumeration_completeness() -> None
 
     assert {"images", "enumeration", "size_bytes"} <= set(schema["properties"])
     assert {"complete", "pages_fetched"} <= set(schema["$defs"]["EnumerationState"]["properties"])
+
+
+@pytest.mark.parametrize("field", ["digest", "reference", "repository"])
+@pytest.mark.parametrize("invalid", [" ", "line\nbreak", "nul\x00byte"])
+def test_selected_image_identifiers_reject_blank_or_control_text(field: str, invalid: str) -> None:
+    values = {
+        "digest": "sha256:abc",
+        "reference": "registry.example/team/app:tag",
+        "repository": "team/app",
+    }
+    values[field] = invalid
+
+    with pytest.raises(ValidationError):
+        SelectedImage.model_validate(values)
+
+
+@pytest.mark.parametrize("invalid", [" ", "line\nbreak", "nul\x00byte"])
+def test_handoff_image_digest_rejects_blank_or_control_text(invalid: str) -> None:
+    with pytest.raises(ValidationError):
+        RemediationHandoffResult(
+            context=context(),
+            warnings=[],
+            handoffVersion="2.0.0",
+            generatedAt=datetime(2026, 7, 9, tzinfo=UTC),
+            imageDigest=invalid,
+            selection=complete(),
+            evidence={},
+            evidence_size_bytes={},
+            totalSizeBytes=0,
+        )
+
+
+@pytest.mark.parametrize("non_finite", [math.nan, math.inf, -math.inf])
+def test_nested_raw_json_rejects_non_finite_floats(non_finite: float) -> None:
+    with pytest.raises(ValidationError):
+        ImageDetailResult(
+            context=context(),
+            warnings=[],
+            selected_image=selected(),
+            selection=complete(),
+            detail={"nested": [non_finite]},
+            size_bytes=12,
+        )

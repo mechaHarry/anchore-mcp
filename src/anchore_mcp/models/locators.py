@@ -1,22 +1,15 @@
 from typing import Annotated, Literal
-import unicodedata
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
-
-def _reject_blank_or_control_characters(value: str) -> str:
-    if not value.strip():
-        raise ValueError("value must contain a non-whitespace character")
-    if any(unicodedata.category(character) == "Cc" for character in value):
-        raise ValueError("value must not contain control characters")
-    return value
+from anchore_mcp.models.common import validate_identifier_text
 
 
-LocatorText = Annotated[str, AfterValidator(_reject_blank_or_control_characters)]
+LocatorText = Annotated[str, AfterValidator(validate_identifier_text)]
 
 
 class LocatorModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
 
 class DigestLocator(LocatorModel):

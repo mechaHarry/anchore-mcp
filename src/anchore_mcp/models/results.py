@@ -7,6 +7,7 @@ from anchore_mcp.models.common import (
     ContractModel,
     DeploymentContext,
     EnumerationState,
+    IdentifierText,
     SelectedImage,
 )
 
@@ -65,7 +66,7 @@ class RemediationHandoffResult(CapabilityResult):
 
     handoff_version: Literal["2.0.0"] = Field(alias="handoffVersion")
     generated_at: datetime = Field(alias="generatedAt")
-    image_digest: str = Field(alias="imageDigest", min_length=1)
+    image_digest: IdentifierText = Field(alias="imageDigest")
     selection: EnumerationState
     evidence: dict[str, JsonValue]
     evidence_size_bytes: dict[str, ByteCount]

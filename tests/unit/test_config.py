@@ -159,6 +159,52 @@ def test_connection_repr_dump_snapshot_and_errors_never_contain_token() -> None:
     assert secret not in str(raw_input_caught.value)
 
 
+def test_connection_validation_errors_hide_secret_fragments_and_extra_values() -> None:
+    secret = "recognizable-prefix-" + ("s" * 96) + "-recognizable-suffix"
+
+    with pytest.raises(ValidationError) as caught:
+        AnchoreConnection.model_validate(
+            {
+                "base_url": "https://anchore.example",
+                "token": secret,
+                "unexpected_secret": secret,
+            }
+        )
+
+    rendered = f"{caught.value!s} {caught.value!r}"
+    for fragment in (secret, "recognizable-prefix", "recognizable-suffix"):
+        assert fragment not in rendered
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com:abc",
+        "https://example.com:99999",
+        "https://exa mple.com",
+        "https://example.com\t.evil",
+        "https://\x00example.com",
+        "https://:443",
+        "https://.",
+        "https://example.com\\evil",
+        "https://exa\u202emple.com",
+    ],
+)
+def test_connection_rejects_malformed_url_authorities(url: str) -> None:
+    with pytest.raises(AnchoreConfigurationError, match="ANCHORE_URL"):
+        load_connection(required_env(ANCHORE_URL=url))
+
+
+@pytest.mark.parametrize("url", ["https://localhost", "https://127.0.0.1", "https://[::1]"])
+def test_connection_allows_local_and_internal_style_hosts(url: str) -> None:
+    assert load_connection(required_env(ANCHORE_URL=url)).base_url == url
+
+
+def test_connection_rejects_account_header_injection() -> None:
+    with pytest.raises(AnchoreConfigurationError, match="ANCHORE_ACCOUNT"):
+        load_connection(required_env(ANCHORE_ACCOUNT="team\r\nx-injected: yes"))
+
+
 def test_explicit_environment_mapping_does_not_merge_process_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -17,6 +17,7 @@ from pytest import MonkeyPatch
 def _validated_sdist_members(members: Iterable[tarfile.TarInfo]) -> set[str]:
     root = PurePosixPath("anchore_mcp-4.0.0")
     files: set[str] = set()
+    seen: set[str] = set()
 
     for member in members:
         path = PurePosixPath(member.name)
@@ -28,6 +29,9 @@ def _validated_sdist_members(members: Iterable[tarfile.TarInfo]) -> set[str]:
                 f"tar member is outside the package root: {member.name}"
             ) from error
         assert ".." not in relative.parts, f"parent traversal is not permitted: {member.name}"
+        member_path = relative.as_posix()
+        assert member_path not in seen, f"duplicate tar member path is not permitted: {member.name}"
+        seen.add(member_path)
 
         if member.isdir():
             continue
@@ -37,7 +41,7 @@ def _validated_sdist_members(members: Iterable[tarfile.TarInfo]) -> set[str]:
             detail = " with unsafe target" if unsafe else ""
             raise AssertionError(f"tar link entries are not permitted{detail}: {member.name}")
         assert member.isfile(), f"non-regular tar member is not permitted: {member.name}"
-        files.add(relative.as_posix())
+        files.add(member_path)
 
     return files
 
@@ -101,6 +105,14 @@ def test_sdist_member_validation_rejects_other_non_regular_entries(member_type: 
 
     with pytest.raises(AssertionError, match="not permitted"):
         _validated_sdist_members([member])
+
+
+def test_sdist_member_validation_rejects_duplicate_paths() -> None:
+    first = tarfile.TarInfo("anchore_mcp-4.0.0/src/anchore_mcp/config.py")
+    second = tarfile.TarInfo("anchore_mcp-4.0.0/src/anchore_mcp/config.py")
+
+    with pytest.raises(AssertionError, match="duplicate"):
+        _validated_sdist_members([first, second])
 
 
 def test_sdist_contains_only_allowlisted_distribution_files(tmp_path: Path) -> None:
