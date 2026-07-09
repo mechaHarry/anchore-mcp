@@ -169,6 +169,13 @@ def test_sdist_contains_only_allowlisted_distribution_files(tmp_path: Path) -> N
         "src/anchore_mcp/tools/__init__.py",
         "src/anchore_mcp/tools/common.py",
         "src/anchore_mcp/tools/connection_info.py",
+        "src/anchore_mcp/tools/image_common.py",
+        "src/anchore_mcp/tools/image_detail.py",
+        "src/anchore_mcp/tools/image_policy_check.py",
+        "src/anchore_mcp/tools/image_sbom.py",
+        "src/anchore_mcp/tools/image_vulnerabilities.py",
         "src/anchore_mcp/tools/list_images.py",
+        "src/anchore_mcp/tools/policy_blocking_vulnerabilities.py",
+        "src/anchore_mcp/tools/remediation_handoff.py",
     }
     assert sdist_path.stat().st_size < 100_000
