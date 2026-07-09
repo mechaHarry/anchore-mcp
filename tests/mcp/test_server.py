@@ -55,14 +55,14 @@ async def test_in_memory_client_discovers_without_credentials(
 
 
 def test_run_uses_stdio_transport_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    transports: list[str] = []
+    run_calls: list[tuple[str, bool]] = []
 
     class _Server:
-        def run(self, *, transport: str) -> None:
-            transports.append(transport)
+        def run(self, *, transport: str, show_banner: bool) -> None:
+            run_calls.append((transport, show_banner))
 
     monkeypatch.setattr("anchore_mcp.server.create_server", _Server)
 
     run()
 
-    assert transports == ["stdio"]
+    assert run_calls == [("stdio", False)]

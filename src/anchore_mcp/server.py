@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+import logging
 from typing import Any
 
 from fastmcp import FastMCP
@@ -23,12 +24,18 @@ from anchore_mcp.tools.remediation_handoff import anchore_remediation_handoff
 
 type RuntimeFactory = Callable[[], Runtime]
 
+_FRAMEWORK_LOG_LEVEL = logging.CRITICAL + 1
 _READ_ONLY_ANNOTATIONS = ToolAnnotations(
     readOnlyHint=True,
     idempotentHint=True,
     destructiveHint=False,
     openWorldHint=True,
 )
+
+
+def _disable_framework_logging() -> None:
+    for logger_name in ("fastmcp", "mcp"):
+        logging.getLogger(logger_name).setLevel(_FRAMEWORK_LOG_LEVEL)
 
 
 def make_lifespan(
@@ -46,6 +53,7 @@ def make_lifespan(
 
 
 def create_server(*, runtime_factory: RuntimeFactory = create_runtime) -> FastMCP:
+    _disable_framework_logging()
     app = FastMCP(
         name="anchore-mcp",
         version=__version__,
@@ -66,4 +74,4 @@ def create_server(*, runtime_factory: RuntimeFactory = create_runtime) -> FastMC
 
 
 def run() -> None:
-    create_server().run(transport="stdio")
+    create_server().run(transport="stdio", show_banner=False)
