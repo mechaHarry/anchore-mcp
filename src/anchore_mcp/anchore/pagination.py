@@ -241,9 +241,7 @@ def _normalize_continuation(
     if continuation.path != canonical_path:
         return None
     original = {key: base_params.get_list(key) for key in base_params.keys()}
-    candidate = {
-        key: continuation.params.get_list(key) for key in continuation.params.keys()
-    }
+    candidate = {key: continuation.params.get_list(key) for key in continuation.params.keys()}
     for key, values in candidate.items():
         if key in _PAGINATION_QUERY_KEYS:
             continue
@@ -402,9 +400,7 @@ def _next_image_continuation(
         next_params = base_params.set("page_token", value)
         body_candidates.append(_Continuation(current_path, next_params))
     candidates = [
-        candidate
-        for candidate in (link_continuation, *body_candidates)
-        if candidate is not None
+        candidate for candidate in (link_continuation, *body_candidates) if candidate is not None
     ]
     if len({_request_key(candidate.path, candidate.params) for candidate in candidates}) > 1:
         return True, None, "Pagination advertised conflicting continuations."

@@ -156,3 +156,59 @@ async def test_caller_cancellation_still_finishes_close_cleanup() -> None:
     assert runtime.owned_tasks == set()
     assert runtime.openapi_cache.size == 0
     assert runtime.http_client.is_closed
+
+
+@pytest.mark.asyncio
+async def test_repeated_caller_cancellation_cannot_cancel_shared_cleanup() -> None:
+    runtime = create_runtime()
+    started = asyncio.Event()
+    cancellation_started = asyncio.Event()
+    release_cancellation = asyncio.Event()
+
+    async def slow_cancellation() -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancellation_started.set()
+            await release_cancellation.wait()
+            raise
+
+    worker = runtime.create_task(slow_cancellation())
+    await started.wait()
+    close_task = asyncio.create_task(runtime.close())
+    await cancellation_started.wait()
+    close_task.cancel()
+    await asyncio.sleep(0)
+    close_task.cancel()
+    release_cancellation.set()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(close_task, timeout=1)
+    assert worker.cancelled()
+    assert runtime.closed
+    assert runtime.http_client.is_closed
+
+
+@pytest.mark.asyncio
+async def test_failed_resource_close_remains_retryable(monkeypatch: MonkeyPatch) -> None:
+    runtime = create_runtime()
+    original_close = runtime.http_client.aclose
+    calls = 0
+
+    async def flaky_close() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("synthetic close failure")
+        await original_close()
+
+    monkeypatch.setattr(runtime.http_client, "aclose", flaky_close)
+    with pytest.raises(RuntimeError, match="synthetic close failure"):
+        await runtime.close()
+    assert runtime.closed is False
+    assert runtime.http_client.is_closed is False
+
+    await runtime.close()
+    assert calls == 2
+    assert runtime.closed
+    assert runtime.http_client.is_closed

@@ -74,29 +74,39 @@ class Runtime:
         if self._cleanup_task is None:
             self._cleanup_task = asyncio.create_task(self._close_resources())
         cleanup = self._cleanup_task
-        try:
-            await asyncio.shield(cleanup)
-        except asyncio.CancelledError:
-            await cleanup
-            raise
+        cancellation: asyncio.CancelledError | None = None
+        while True:
+            try:
+                await asyncio.shield(cleanup)
+                break
+            except asyncio.CancelledError as error:
+                if cleanup.cancelled():
+                    if self._cleanup_task is cleanup:
+                        self._cleanup_task = None
+                    raise
+                cancellation = error
+            except BaseException:
+                if self._cleanup_task is cleanup:
+                    self._cleanup_task = None
+                raise
+        if cancellation is not None:
+            raise cancellation
 
     async def _close_resources(self) -> None:
+        await asyncio.sleep(0)
+        pending = tuple(task for task in self.owned_tasks if not task.done())
+        self._joining_tasks.update(pending)
         try:
-            await asyncio.sleep(0)
-            pending = tuple(task for task in self.owned_tasks if not task.done())
-            self._joining_tasks.update(pending)
-            try:
-                for task in pending:
-                    task.cancel()
-                if pending:
-                    await asyncio.gather(*pending, return_exceptions=True)
-            finally:
-                self._joining_tasks.difference_update(pending)
-            self.owned_tasks.clear()
-            self.openapi_cache.clear()
-            await self.http_client.aclose()
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
         finally:
-            self._closed = True
+            self._joining_tasks.difference_update(pending)
+        self.owned_tasks.clear()
+        self.openapi_cache.clear()
+        await self.http_client.aclose()
+        self._closed = True
 
     async def __aenter__(self) -> Self:
         if self._closed:
