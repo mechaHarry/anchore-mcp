@@ -65,15 +65,14 @@ def backoff_seconds(
 
     if attempt_index < 0:
         raise ValueError("attempt_index must be nonnegative")
+    if not math.isfinite(random_value) or not 0 <= random_value <= 1:
+        raise ValueError("random_value must be finite and between 0 and 1")
 
     cap = policy.max_delay_ms / 1000
     if retry_after is not None:
         if not math.isfinite(retry_after) or retry_after < 0:
             raise ValueError("retry_after must be finite and nonnegative")
         return min(float(retry_after), cap)
-
-    if not math.isfinite(random_value) or not 0 <= random_value <= 1:
-        raise ValueError("random_value must be finite and between 0 and 1")
 
     base = policy.base_delay_ms / 1000
     if base == 0 or cap == 0:

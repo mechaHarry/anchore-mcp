@@ -118,6 +118,12 @@ def test_backoff_rejects_random_values_outside_closed_unit_interval(random_value
         backoff_seconds(0, RetryPolicy(), random_value=random_value)
 
 
+@pytest.mark.parametrize("random_value", [-0.1, 1.1, math.inf, -math.inf, math.nan])
+def test_backoff_rejects_invalid_random_values_with_retry_after(random_value: float) -> None:
+    with pytest.raises(ValueError, match="random_value"):
+        backoff_seconds(0, RetryPolicy(), random_value=random_value, retry_after=1)
+
+
 @pytest.mark.parametrize("retry_after", [-1.0, math.inf, -math.inf, math.nan])
 def test_backoff_rejects_invalid_retry_after_values(retry_after: float) -> None:
     with pytest.raises(ValueError, match="retry_after"):
