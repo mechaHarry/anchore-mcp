@@ -8,16 +8,35 @@ import unicodedata
 
 
 MAX_STDERR_LINE_BYTES = 512
+MAX_CONFIGURED_SECRETS = 16
+MAX_CONFIGURED_SECRET_LENGTH = 4_096
+MAX_CONFIGURED_SECRET_TOTAL_LENGTH = 16_384
+MAX_LOG_INPUT_CHARACTERS = 8_192
 _REDACTED = "[REDACTED]"
 _TRUNCATED = "… [truncated]"
 
-_AUTHORIZATION = re.compile(r"(?i)\bauthorization\s*:\s*[^\r\n]*")
-_BEARER = re.compile(r"(?i)\bbearer\s+[^\s?#&]+")
-_BASIC = re.compile(r"(?i)\bbasic\s+[^\s?#&]+")
-_QUERY_SECRET = re.compile(
-    r"(?i)\b(access_?token|refresh_?token|id_?token|api_?key|client_?secret|password|secret)"
-    r"\s*=\s*([^&\s#]+)"
+
+def _spelled(word: str) -> str:
+    return r"\s*".join(re.escape(character) for character in word)
+
+
+_AUTHORIZATION = re.compile(rf"(?i)\b{_spelled('authorization')}\s*:\s*[^\r\n]*")
+_BEARER = re.compile(rf"(?i)\b{_spelled('bearer')}\s+[^\s?#&]+")
+_BASIC = re.compile(rf"(?i)\b{_spelled('basic')}\s+[^\s?#&]+")
+_KEY_SEPARATOR = r"(?:\s*(?:_|-|%5f|%2d)\s*|\s*)"
+_QUERY_KEYS = "|".join(
+    (
+        f"{_spelled('access')}{_KEY_SEPARATOR}{_spelled('token')}",
+        f"{_spelled('refresh')}{_KEY_SEPARATOR}{_spelled('token')}",
+        f"{_spelled('id')}{_KEY_SEPARATOR}{_spelled('token')}",
+        f"{_spelled('api')}{_KEY_SEPARATOR}{_spelled('key')}",
+        f"{_spelled('client')}{_KEY_SEPARATOR}{_spelled('secret')}",
+        _spelled("password"),
+        _spelled("secret"),
+        _spelled("token"),
+    )
 )
+_QUERY_SECRET = re.compile(rf"(?i)\b({_QUERY_KEYS})\s*=\s*([^&\s#]+)")
 
 
 def _redact_patterns(text: str) -> str:
@@ -27,14 +46,38 @@ def _redact_patterns(text: str) -> str:
     return _QUERY_SECRET.sub(lambda match: f"{match.group(1)}={_REDACTED}", redacted)
 
 
-def _redact_configured_secrets(text: str, configured_secrets: Iterable[str]) -> str:
-    redacted = text
-    secrets = sorted(
-        {secret for secret in configured_secrets if secret}, key=lambda value: (-len(value), value)
+def _bounded_configured_secrets(configured_secrets: Iterable[object]) -> tuple[str, ...] | None:
+    secrets: set[str] = set()
+    total_length = 0
+    try:
+        for index, secret in enumerate(configured_secrets):
+            if index >= MAX_CONFIGURED_SECRETS:
+                return None
+            if not isinstance(secret, str) or len(secret) > MAX_CONFIGURED_SECRET_LENGTH:
+                return None
+            if not secret or secret in secrets:
+                continue
+            total_length += len(secret)
+            if total_length > MAX_CONFIGURED_SECRET_TOTAL_LENGTH:
+                return None
+            secrets.add(secret)
+    except Exception:
+        return None
+    return tuple(sorted(secrets, key=lambda value: (-len(value), value)))
+
+
+def _redact_configured_secrets(text: str, secrets: tuple[str, ...]) -> str:
+    if not secrets:
+        return text
+    alternatives = "|".join(re.escape(secret) for secret in secrets)
+    pattern = re.compile(rf"(?:(?:{alternatives}))+")
+    return pattern.sub(_REDACTED, text)
+
+
+def _redact_outside_markers(text: str, secrets: tuple[str, ...]) -> str:
+    return _REDACTED.join(
+        _redact_configured_secrets(part, secrets) for part in text.split(_REDACTED)
     )
-    for secret in secrets:
-        redacted = redacted.replace(secret, _REDACTED)
-    return redacted
 
 
 def _normalize_controls(text: str) -> str:
@@ -44,24 +87,30 @@ def _normalize_controls(text: str) -> str:
     )
 
 
-def _truncate_utf8(text: str) -> str:
+def _truncate_utf8(text: str, *, limit: int = MAX_STDERR_LINE_BYTES) -> str:
     encoded = text.encode("utf-8")
-    if len(encoded) <= MAX_STDERR_LINE_BYTES:
+    if len(encoded) <= limit:
         return text
     suffix = _TRUNCATED.encode("utf-8")
-    prefix = encoded[: MAX_STDERR_LINE_BYTES - len(suffix)].decode("utf-8", errors="ignore")
+    prefix = encoded[: limit - len(suffix)].decode("utf-8", errors="ignore")
     return f"{prefix}{_TRUNCATED}"
 
 
 def safe_log_line(message: str, *, configured_secrets: Iterable[str] = ()) -> str:
     """Render one bounded line after redacting patterns and explicit secret values."""
 
-    secrets = tuple(configured_secrets)
-    redacted = _redact_patterns(message)
+    secrets = _bounded_configured_secrets(configured_secrets)
+    if secrets is None:
+        return _REDACTED
+    input_truncated = len(message) > MAX_LOG_INPUT_CHARACTERS
+    bounded_message = message[:MAX_LOG_INPUT_CHARACTERS]
+    redacted = _redact_patterns(bounded_message)
     redacted = _redact_configured_secrets(redacted, secrets)
     normalized = _normalize_controls(redacted)
     normalized = _redact_patterns(normalized)
-    normalized = _redact_configured_secrets(normalized, secrets)
+    normalized = _redact_outside_markers(normalized, secrets)
+    if input_truncated:
+        normalized = f"{normalized}{_TRUNCATED}"
     return _truncate_utf8(normalized)
 
 
@@ -74,4 +123,5 @@ def log_stderr_line(
     """Write exactly one sanitized operational line to stderr."""
 
     destination = sys.stderr if stream is None else stream
-    destination.write(f"{safe_log_line(message, configured_secrets=configured_secrets)}\n")
+    line = safe_log_line(message, configured_secrets=configured_secrets)
+    destination.write(f"{_truncate_utf8(line, limit=MAX_STDERR_LINE_BYTES - 1)}\n")

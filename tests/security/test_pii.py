@@ -48,3 +48,19 @@ def test_benign_text_is_unchanged_without_warnings() -> None:
     assert masked.structured is evidence
     assert masked.kinds == ()
     assert masked.warnings == ()
+
+
+def test_phone_prefix_inside_alphanumeric_identifier_is_not_masked() -> None:
+    text = "sha=1234567890abcdef"
+
+    masked = mask_pii_text(text)
+
+    assert masked.text == text
+    assert masked.kinds == ()
+
+
+def test_masks_unicode_and_punycode_email_addresses_completely() -> None:
+    masked = mask_pii_text("δοκιμή@παράδειγμα.δοκιμή and person@example.xn--p1ai")
+
+    assert masked.text == "[email redacted] and [email redacted]"
+    assert masked.kinds == ("email",)

@@ -7,11 +7,15 @@ from typing import Literal
 
 type PiiKind = Literal["email", "ssn_like", "phone_like"]
 
-_EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,}\b")
+_EMAIL = re.compile(
+    r"(?<![\w.%+-])[\w.!#$%&'*+/=?^`{|}~-]+@(?:[\w-]+\.)+"
+    r"(?:xn--[A-Za-z0-9-]{2,59}|[^\W\d_]{2,63})(?![\w-])",
+    re.IGNORECASE,
+)
 _SSN_LIKE = re.compile(r"\b[0-9]{3}-[0-9]{2}-[0-9]{4}\b")
 _PHONE_LIKE = re.compile(
     r"(?<![A-Za-z0-9])(?:\+?1[-.\s]?)?(?:\([0-9]{3}\)|[0-9]{3})"
-    r"[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}(?![0-9])"
+    r"[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}(?![A-Za-z0-9])"
 )
 
 _WARNING_BY_KIND: dict[PiiKind, str] = {
