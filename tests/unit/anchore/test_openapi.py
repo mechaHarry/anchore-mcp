@@ -9,6 +9,9 @@ from anchore_mcp.anchore.http import JsonResponse
 from anchore_mcp.anchore.openapi import (
     FALLBACK_LIST_IMAGES_QUERY_KEYS,
     MAX_LIST_QUERY_KEYS,
+    MAX_LIST_QUERY_ENTRIES_EXAMINED,
+    MAX_LIST_QUERY_KEY_LENGTH,
+    MAX_REJECTED_QUERY_KEYS,
     MAX_LIST_QUERY_VALUE_LENGTH,
     MAX_OPENAPI_BYTES,
     OpenApiCache,
@@ -142,6 +145,23 @@ async def test_clear_and_invalidate_remove_entry() -> None:
     await cache.fetch(conn)
     assert cache.invalidate(conn)
     assert cache.size == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["clear", "invalidate"])
+async def test_inflight_fetch_cannot_repopulate_after_invalidation(operation: str) -> None:
+    future: asyncio.Future[object] = asyncio.get_running_loop().create_future()
+    conn = connection()
+    cache = OpenApiCache(StubHttp(lambda _c, _p, _s: future))
+    task = asyncio.create_task(cache.fetch(conn))
+    await asyncio.sleep(0)
+    if operation == "clear":
+        cache.clear()
+    else:
+        assert cache.invalidate(conn) is False
+    future.set_result({"ok": True})
+    assert await task == {"ok": True}
+    assert cache.size == 0
     await cache.fetch(conn)
     cache.clear()
     assert cache.size == 0
@@ -201,8 +221,26 @@ def test_fallback_and_query_merge_are_bounded_with_explicit_precedence() -> None
     assert merged.params.get("full_tag") == "registry/team:tag"
     assert merged.params.get("vulnerability_id") == "CVE-1"
     assert "huge" in merged.rejected_keys
+    assert merged.rejected_count >= 1
+    assert len(merged.applied_keys) <= MAX_LIST_QUERY_KEYS
     assert len(merged.params) <= MAX_LIST_QUERY_KEYS + 2
     assert "fulltag" in fallback_list_images_query_keys("v1")
     assert "full_tag" not in fallback_list_images_query_keys("v1")
     assert "full_tag" in fallback_list_images_query_keys("v2")
     assert "fulltag" not in fallback_list_images_query_keys("v2")
+
+
+def test_query_merge_bounds_work_and_rejection_diagnostics() -> None:
+    entries = {
+        **{f"allowed-{index}": "x" for index in range(MAX_LIST_QUERY_ENTRIES_EXAMINED + 50)},
+        "x" * (MAX_LIST_QUERY_KEY_LENGTH + 1): "oversized-key",
+    }
+    merged = merge_list_images_query(
+        version="v2",
+        list_query=entries,
+        allowlist=frozenset(entries),
+    )
+    assert len(merged.applied_keys) <= MAX_LIST_QUERY_KEYS
+    assert len(merged.rejected_keys) <= MAX_REJECTED_QUERY_KEYS
+    assert merged.rejected_count >= len(merged.rejected_keys)
+    assert merged.truncated is True

@@ -19,6 +19,9 @@ _MAX_CONTINUATION_LENGTH = 16 * 1024
 _LINK_VALUE = re.compile(r"^\s*<([^<>]+)>\s*(.*)$")
 _LINK_PARAMETER_NAME = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 _TOKEN_KEYS = ("next_page_token", "nextPageToken", "continuation_token", "page_token")
+_PAGINATION_QUERY_KEYS = frozenset(
+    {"page", "limit", "offset", "page_size", "page_token", *_TOKEN_KEYS}
+)
 
 type QueryValue = str | int | float | bool | None
 type Query = Mapping[str, QueryValue] | httpx.QueryParams
@@ -230,6 +233,30 @@ def _request_key(path: str, params: httpx.QueryParams) -> tuple[str, tuple[tuple
     return path, tuple(sorted(params.multi_items()))
 
 
+def _normalize_continuation(
+    continuation: _Continuation,
+    canonical_path: str,
+    base_params: httpx.QueryParams,
+) -> _Continuation | None:
+    if continuation.path != canonical_path:
+        return None
+    original = {key: base_params.get_list(key) for key in base_params.keys()}
+    candidate = {
+        key: continuation.params.get_list(key) for key in continuation.params.keys()
+    }
+    for key, values in candidate.items():
+        if key in _PAGINATION_QUERY_KEYS:
+            continue
+        if key not in original or values != original[key]:
+            return None
+    normalized = list(continuation.params.multi_items())
+    for key, values in original.items():
+        if key in _PAGINATION_QUERY_KEYS or key in candidate:
+            continue
+        normalized.extend((key, value) for value in values)
+    return _Continuation(canonical_path, httpx.QueryParams(tuple(normalized)))
+
+
 async def fetch_image_pages(
     client: JsonHttpClient,
     connection: AnchoreConnection,
@@ -244,6 +271,7 @@ async def fetch_image_pages(
     seen = {_request_key(path, request_params)}
     rows: list[JsonValue] = []
     wrapper: Wrapper | None = None
+    expected_total: int | None = None
 
     for page_number in range(1, caps.max_pages + 1):
         response = await client.get_json(
@@ -264,6 +292,17 @@ async def fetch_image_pages(
             return _incomplete(
                 rows, page_number, "Image page wrapper changed during enumeration.", wrapper
             )
+        data = response.data
+        if isinstance(data, dict) and "total_rows" in data:
+            reported = data["total_rows"]
+            if type(reported) is not int or reported < 0:
+                return _incomplete(rows, page_number, "Image total_rows was invalid.", wrapper)
+            if expected_total is None:
+                expected_total = reported
+            elif reported != expected_total:
+                return _incomplete(rows, page_number, "Image total_rows was inconsistent.", wrapper)
+        if expected_total is not None and len(rows) + len(page_rows) > expected_total:
+            return _incomplete(rows, page_number, "Image total_rows was inconsistent.", wrapper)
         remaining = caps.max_items - len(rows)
         rows.extend(page_rows[:remaining])
         truncated = len(page_rows) > remaining
@@ -276,7 +315,29 @@ async def fetch_image_pages(
         if truncated:
             return _incomplete(rows, page_number, "Stopped at the max_items cap.", wrapper)
         if continuation is None:
+            if expected_total is not None and len(rows) != expected_total:
+                return _incomplete(
+                    rows,
+                    page_number,
+                    "Enumeration ended before image total_rows was reached.",
+                    wrapper,
+                )
             return PaginatedRows(tuple(rows), page_number, True, None, wrapper)
+        if expected_total is not None:
+            if len(rows) == expected_total:
+                return _incomplete(
+                    rows,
+                    page_number,
+                    "Pagination continued after image total_rows was reached.",
+                    wrapper,
+                )
+            if not page_rows:
+                return _incomplete(
+                    rows,
+                    page_number,
+                    "Enumeration ended before image total_rows was reached.",
+                    wrapper,
+                )
         if len(rows) >= caps.max_items and advertised:
             return _incomplete(rows, page_number, "Stopped at the max_items cap.", wrapper)
         key = _request_key(continuation.path, continuation.params)
@@ -306,11 +367,17 @@ def _next_image_continuation(
         if parsed_link is None:
             return True, None, "Pagination advertised an invalid Link continuation."
         link_advertised, link_continuation = parsed_link
+        if link_continuation is not None:
+            link_continuation = _normalize_continuation(
+                link_continuation, current_path, base_params
+            )
+            if link_continuation is None:
+                return True, None, "Pagination advertised an invalid Link continuation."
 
     data = response.data
     if not isinstance(data, dict):
         return link_advertised, link_continuation, None
-    body_continuation: _Continuation | None = None
+    body_candidates: list[_Continuation] = []
     body_advertised = False
     if "next" in data:
         body_advertised = True
@@ -320,6 +387,10 @@ def _next_image_continuation(
         body_continuation = _validate_href(base_url, current_path, href)
         if body_continuation is None:
             return True, None, "Pagination advertised an invalid JSON continuation."
+        normalized = _normalize_continuation(body_continuation, current_path, base_params)
+        if normalized is None:
+            return True, None, "Pagination advertised an invalid JSON continuation."
+        body_candidates.append(normalized)
     present_tokens = [key for key in _TOKEN_KEYS if key in data]
     if present_tokens:
         body_advertised = True
@@ -328,12 +399,18 @@ def _next_image_continuation(
         value = data[present_tokens[0]]
         if not isinstance(value, str) or not value or len(value) > _MAX_CONTINUATION_LENGTH:
             return True, None, "Pagination advertised an invalid continuation token."
-        if body_continuation is None:
-            next_params = base_params.set("page_token", value)
-            body_continuation = _Continuation(current_path, next_params)
+        next_params = base_params.set("page_token", value)
+        body_candidates.append(_Continuation(current_path, next_params))
+    candidates = [
+        candidate
+        for candidate in (link_continuation, *body_candidates)
+        if candidate is not None
+    ]
+    if len({_request_key(candidate.path, candidate.params) for candidate in candidates}) > 1:
+        return True, None, "Pagination advertised conflicting continuations."
     return (
         link_advertised or body_advertised,
-        link_continuation or body_continuation,
+        candidates[0] if candidates else None,
         None,
     )
 

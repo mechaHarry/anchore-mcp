@@ -87,14 +87,55 @@ async def test_image_pages_follow_safe_relative_and_absolute_links_with_query_en
             response({"items": []}),
         ]
     )
-    result = await fetch_image_pages(http, connection(), {"q": "ignored on continuation"})
+    result = await fetch_image_pages(http, connection(), {"q": "team/app"})
     assert result.complete is True
     assert result.pages_fetched == 3
     assert http.calls[1][:2] == (
         "/v2/images",
         httpx.QueryParams("page=2&q=team%2Fapp"),
     )
-    assert http.calls[2][:2] == ("/v2/images", httpx.QueryParams("page=3"))
+    assert http.calls[2][:2] == (
+        "/v2/images",
+        httpx.QueryParams("page=3&q=team%2Fapp"),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "link",
+    [
+        "</enterprise/v2/images/other?page=2>; rel=next",
+        "<?page=2&q=overridden>; rel=next",
+        "<?page=2&unexpected=value>; rel=next",
+        "<?page=2&authorization=secret>; rel=next",
+    ],
+)
+async def test_image_continuations_cannot_change_route_or_filter_scope(link: str) -> None:
+    result = await fetch_image_pages(
+        StubHttp([response({"items": [{"id": "a"}]}, link=link)]),
+        connection(),
+        {"q": "original"},
+    )
+    assert result.complete is False
+    assert "continuation" in (result.incomplete_reason or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_conflicting_link_and_body_continuations_fail_closed() -> None:
+    result = await fetch_image_pages(
+        StubHttp(
+            [
+                response(
+                    {"items": [{"id": "a"}], "next": "?page=3"},
+                    link="<?page=2>; rel=next",
+                )
+            ]
+        ),
+        connection(),
+        {"q": "original"},
+    )
+    assert result.complete is False
+    assert "conflict" in (result.incomplete_reason or "").lower()
 
 
 @pytest.mark.asyncio
@@ -179,6 +220,32 @@ async def test_malformed_wrapper_rows_and_caps_are_incomplete() -> None:
     assert capped.rows == ({"id": 1},)
     assert capped.complete is False
     assert "max_items" in (capped.incomplete_reason or "")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "bodies",
+    [
+        [{"items": [{"id": "a"}], "total_rows": 0}],
+        [
+            {"items": [{"id": "a"}], "total_rows": 3, "next": "?page=2"},
+            {"items": [{"id": "b"}], "total_rows": 2},
+        ],
+        [{"items": [{"id": "a"}, {"id": "b"}], "total_rows": 1}],
+        [{"items": [], "total_rows": 1}],
+        [{"items": [], "total_rows": -1}],
+        [{"items": [{"id": "a"}], "total_rows": 2}],
+    ],
+)
+async def test_image_pages_validate_stable_total_rows(bodies: list[object]) -> None:
+    result = await fetch_image_pages(
+        StubHttp([response(body) for body in bodies]),
+        connection(),
+        {},
+        PageCaps(3, 3),
+    )
+    assert result.complete is False
+    assert "total_rows" in (result.incomplete_reason or "")
 
 
 @pytest.mark.asyncio

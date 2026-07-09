@@ -22,7 +22,10 @@ MAX_OPENAPI_PATHS = 2_048
 MAX_OPENAPI_PARAMETERS = 256
 MAX_PARAMETER_NAME_LENGTH = 256
 MAX_LIST_QUERY_KEYS = 32
+MAX_LIST_QUERY_ENTRIES_EXAMINED = 64
+MAX_LIST_QUERY_KEY_LENGTH = 256
 MAX_LIST_QUERY_VALUE_LENGTH = 4_096
+MAX_REJECTED_QUERY_KEYS = 32
 
 _COMMON_FALLBACK_LIST_IMAGES_QUERY_KEYS = frozenset(
     {
@@ -67,6 +70,7 @@ class OpenApiCache:
         self._ttl_seconds = ttl_seconds
         self._entry: _Entry | None = None
         self._lock = asyncio.Lock()
+        self._generation = 0
 
     @property
     def size(self) -> int:
@@ -85,22 +89,26 @@ class OpenApiCache:
             if entry is not None and entry.key == key and entry.expires_at > now:
                 return entry.document
             self._entry = None
+            generation = self._generation
             response = await self._client.get_json(
                 connection,
                 openapi_route(connection.api_version),
                 max_response_bytes=MAX_OPENAPI_BYTES,
             )
             document = response.data
-            self._entry = _Entry(key, document, self._clock() + self._ttl_seconds)
+            if generation == self._generation:
+                self._entry = _Entry(key, document, self._clock() + self._ttl_seconds)
             return document
 
     def invalidate(self, connection: AnchoreConnection) -> bool:
-        if self._entry is None or self._entry.key != _cache_key(connection):
-            return False
-        self._entry = None
-        return True
+        self._generation += 1
+        matched = self._entry is not None and self._entry.key == _cache_key(connection)
+        if matched:
+            self._entry = None
+        return matched
 
     def clear(self) -> None:
+        self._generation += 1
         self._entry = None
 
 
@@ -215,6 +223,9 @@ async def list_images_query_allowlist(
 class MergedListQuery:
     params: httpx.QueryParams
     rejected_keys: tuple[str, ...]
+    applied_keys: tuple[str, ...]
+    rejected_count: int
+    truncated: bool
 
 
 def merge_list_images_query(
@@ -237,10 +248,25 @@ def merge_list_images_query(
         values["vulnerability_id"] = explicit_vulnerability
 
     rejected: list[str] = []
+    rejected_count = 0
+    applied_keys: list[str] = []
     applied = 0
-    for key, raw_value in sorted((list_query or {}).items()):
-        if applied >= MAX_LIST_QUERY_KEYS or key not in allowed:
-            rejected.append(key)
+    entries: list[tuple[str, str]] = []
+    truncated = False
+    for index, entry in enumerate((list_query or {}).items()):
+        if index >= MAX_LIST_QUERY_ENTRIES_EXAMINED:
+            truncated = True
+            break
+        entries.append(entry)
+    for key, raw_value in sorted(entries):
+        if (
+            len(key) > MAX_LIST_QUERY_KEY_LENGTH
+            or applied >= MAX_LIST_QUERY_KEYS
+            or key not in allowed
+        ):
+            rejected_count += 1
+            if len(rejected) < MAX_REJECTED_QUERY_KEYS:
+                rejected.append(key[:MAX_LIST_QUERY_KEY_LENGTH])
             continue
         if explicit_full_tag and key in {"full_tag", "fulltag"}:
             continue
@@ -248,10 +274,19 @@ def merge_list_images_query(
             continue
         value = raw_value.strip()
         if len(value) > MAX_LIST_QUERY_VALUE_LENGTH:
-            rejected.append(key)
+            rejected_count += 1
+            if len(rejected) < MAX_REJECTED_QUERY_KEYS:
+                rejected.append(key)
             continue
         if not value:
             continue
         values[key] = value
         applied += 1
-    return MergedListQuery(httpx.QueryParams(values), tuple(rejected))
+        applied_keys.append(key)
+    return MergedListQuery(
+        httpx.QueryParams(values),
+        tuple(rejected),
+        tuple(applied_keys),
+        rejected_count,
+        truncated,
+    )

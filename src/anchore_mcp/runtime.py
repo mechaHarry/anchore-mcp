@@ -1,7 +1,7 @@
 """Shared asynchronous runtime resources for the future FastMCP lifespan."""
 
 import asyncio
-from collections.abc import AsyncGenerator, Coroutine
+from collections.abc import AsyncGenerator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 import inspect
@@ -64,7 +64,9 @@ class Runtime:
         if self._closed:
             return
         if self._cleanup_task is None:
-            self._cleanup_task = asyncio.create_task(self._close_resources())
+            self._cleanup_task = asyncio.create_task(
+                self._close_resources(exclude=asyncio.current_task())
+            )
         cleanup = self._cleanup_task
         try:
             await asyncio.shield(cleanup)
@@ -72,9 +74,11 @@ class Runtime:
             await cleanup
             raise
 
-    async def _close_resources(self) -> None:
+    async def _close_resources(self, *, exclude: asyncio.Task[object] | None) -> None:
         try:
-            pending = tuple(task for task in self.owned_tasks if not task.done())
+            pending = tuple(
+                task for task in self.owned_tasks if not task.done() and task is not exclude
+            )
             for task in pending:
                 task.cancel()
             if pending:
@@ -100,10 +104,13 @@ class Runtime:
         await self.close()
 
 
-def create_runtime() -> Runtime:
+def create_runtime(
+    *,
+    client_factory: Callable[..., httpx.AsyncClient] = httpx.AsyncClient,
+) -> Runtime:
     """Create transport resources without reading connection configuration or environment."""
 
-    client = httpx.AsyncClient(
+    client = client_factory(
         http2=True,
         follow_redirects=False,
         limits=_LIMITS,

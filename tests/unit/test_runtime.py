@@ -1,6 +1,5 @@
 import asyncio
-import os
-from typing import Protocol, cast
+from typing import Any
 
 import httpx
 import pytest
@@ -9,34 +8,46 @@ from pytest import MonkeyPatch
 from anchore_mcp.runtime import Runtime, create_runtime, runtime_lifespan
 
 
-class _PoolView(Protocol):
-    _max_connections: int
-    _max_keepalive_connections: int
-    _keepalive_expiry: float
-
-
-class _TransportView(Protocol):
-    _pool: _PoolView
-
-
-def test_factory_has_exact_transport_policy_and_does_not_read_environment(
+@pytest.mark.asyncio
+async def test_factory_has_exact_transport_policy_and_does_not_read_environment(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    def fail_getenv(*_args: object) -> None:
-        raise AssertionError("env read")
+    captured: dict[str, Any] = {}
 
-    monkeypatch.setattr(os, "getenv", fail_getenv)
-    runtime = create_runtime()
-    transport = cast(
-        _TransportView,
-        cast(object, runtime.http_client._transport),  # pyright: ignore[reportPrivateUsage]
+    def client_factory(**kwargs: Any) -> httpx.AsyncClient:
+        captured.update(kwargs)
+        return httpx.AsyncClient(**kwargs)
+
+    def fail_load(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("connection config loaded")
+
+    monkeypatch.setattr("anchore_mcp.config.load_connection", fail_load)
+    runtime = create_runtime(client_factory=client_factory)
+    limits = captured["limits"]
+    assert isinstance(limits, httpx.Limits)
+    assert limits == httpx.Limits(
+        max_connections=20,
+        max_keepalive_connections=10,
+        keepalive_expiry=30,
     )
-    assert transport._pool._max_connections == 20  # pyright: ignore[reportPrivateUsage]
-    assert transport._pool._max_keepalive_connections == 10  # pyright: ignore[reportPrivateUsage]
-    assert transport._pool._keepalive_expiry == 30.0  # pyright: ignore[reportPrivateUsage]
     assert runtime.http_client.follow_redirects is False
     assert runtime.http_client.timeout == httpx.Timeout(connect=10, read=60, write=10, pool=10)
     assert runtime.http_client.headers["user-agent"].startswith("anchore-mcp/")
+    await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_owned_task_can_close_runtime_without_cancelling_or_deadlocking_itself() -> None:
+    runtime = create_runtime()
+
+    async def close_from_owner() -> str:
+        await runtime.close()
+        return "closed"
+
+    task = runtime.create_task(close_from_owner())
+    assert await asyncio.wait_for(task, timeout=1) == "closed"
+    assert runtime.closed
+    assert runtime.http_client.is_closed
 
 
 @pytest.mark.asyncio
