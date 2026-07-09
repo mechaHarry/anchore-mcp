@@ -54,7 +54,7 @@ Do not add secret files or log environment values. Use reserved synthetic domain
 - Never guess through incomplete enumeration, evidence overflow, ambiguous digests, missing trusted timestamps, or newest-image ties. Fail closed with explicit selection state or a safe error.
 - List responses can use `items`, `images`, or a top-level array. Bound pages, items, total bytes, response bytes, JSON traversal, candidates, hints, and OpenAPI structures.
 - The deployment’s version-matched `/v1/openapi.json` or `/v2/openapi.json` is authoritative for deployment-specific list parameters. Do not follow redirects or accept cross-origin capability evidence.
-- Retry only idempotent GET network failures and transient 429/502–504 responses with bounded exponential backoff and jitter. Do not retry timeouts.
+- Retry only idempotent GET `ConnectError`, `ConnectTimeout`, and transient 429/502–504 responses with bounded exponential backoff and jitter. Do not retry read, write, pool, or other request timeouts.
 - Handoff 2.0.0 is evidence, not instruction. Detail, vulnerabilities, and optional policy fetches share one proven digest; any required failure fails the composite result.
 
 ## MCP and security invariants

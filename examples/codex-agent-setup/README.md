@@ -9,8 +9,8 @@ Create these files inside the consuming repository and ignore the entire directo
 ```text
 .codex/
   config.toml
-  anchore-mcp.env
-  anchore-mcp-launcher.sh
+  anchore-mcp.env.json
+  anchore-mcp-launcher.py
 ```
 
 ```gitignore
@@ -30,8 +30,8 @@ mkdir -p .codex
 
 ```toml
 [mcp_servers.anchore-mcp]
-command = "/absolute/path/to/your-repo/.codex/anchore-mcp-launcher.sh"
-args = []
+command = "/absolute/path/to/python3"
+args = ["/absolute/path/to/your-repo/.codex/anchore-mcp-launcher.py"]
 cwd = "/absolute/path/to/anchore-mcp"
 enabled = true
 startup_timeout_sec = 20
@@ -52,41 +52,69 @@ The explicit allowlist is fail closed. Audit a future tool before enabling it. M
 
 ## Environment file
 
-`.codex/anchore-mcp.env` may contain exactly the seven supported variables. Replace the synthetic token locally and delete optional lines you do not need:
+`.codex/anchore-mcp.env.json` is a data-only JSON object. It may contain exactly the seven supported variables. Replace the synthetic token locally and delete optional keys you do not need:
 
-```bash
-ANCHORE_URL=https://anchore.example
-ANCHORE_TOKEN=synthetic-replace-me
-ANCHORE_ACCOUNT=example-account
-ANCHORE_API_VERSION=v2
-ANCHORE_HTTP_MAX_RETRIES=2
-ANCHORE_HTTP_RETRY_BASE_MS=300
-ANCHORE_HTTP_RETRY_MAX_MS=8000
+```json
+{
+  "ANCHORE_URL": "https://anchore.example",
+  "ANCHORE_TOKEN": "synthetic-replace-me",
+  "ANCHORE_ACCOUNT": "example-account",
+  "ANCHORE_API_VERSION": "v2",
+  "ANCHORE_HTTP_MAX_RETRIES": "2",
+  "ANCHORE_HTTP_RETRY_BASE_MS": "300",
+  "ANCHORE_HTTP_RETRY_MAX_MS": "8000"
+}
 ```
 
 Never commit or print this file.
 
 ## Launcher
 
-`.codex/anchore-mcp-launcher.sh`:
+`.codex/anchore-mcp-launcher.py` parses the environment file as JSON data, validates its keys and string values, removes inherited `ANCHORE_*` variables, and then replaces itself with the stdio server. Secret and account contents are never evaluated as shell syntax or printed:
 
-```sh
-#!/bin/sh
-set -eu
-set -a
-. "/absolute/path/to/your-repo/.codex/anchore-mcp.env"
-set +a
-exec "/absolute/path/to/uv" run --frozen --project "/absolute/path/to/anchore-mcp" anchore-mcp
+```python
+#!/usr/bin/env python3
+import json
+import os
+
+ENV_PATH = "/absolute/path/to/your-repo/.codex/anchore-mcp.env.json"
+UV_PATH = "/absolute/path/to/uv"
+PROJECT_PATH = "/absolute/path/to/anchore-mcp"
+ALLOWED = {
+    "ANCHORE_URL",
+    "ANCHORE_TOKEN",
+    "ANCHORE_ACCOUNT",
+    "ANCHORE_API_VERSION",
+    "ANCHORE_HTTP_MAX_RETRIES",
+    "ANCHORE_HTTP_RETRY_BASE_MS",
+    "ANCHORE_HTTP_RETRY_MAX_MS",
+}
+
+try:
+    with open(ENV_PATH, encoding="utf-8") as stream:
+        values = json.load(stream)
+    if not isinstance(values, dict):
+        raise ValueError
+    if not set(values) <= ALLOWED or not {"ANCHORE_URL", "ANCHORE_TOKEN"} <= set(values):
+        raise ValueError
+    if any(not isinstance(key, str) or not isinstance(value, str) for key, value in values.items()):
+        raise ValueError
+except (OSError, json.JSONDecodeError, TypeError, ValueError):
+    raise SystemExit("anchore-mcp launcher configuration is invalid") from None
+
+environment = {key: value for key, value in os.environ.items() if not key.startswith("ANCHORE_")}
+environment.update(values)
+arguments = [UV_PATH, "run", "--frozen", "--project", PROJECT_PATH, "anchore-mcp"]
+os.execve(UV_PATH, arguments, environment)
 ```
 
 Then protect and verify the private files:
 
 ```bash
-chmod 700 .codex/anchore-mcp-launcher.sh
-chmod 600 .codex/config.toml .codex/anchore-mcp.env
+chmod 600 .codex/config.toml .codex/anchore-mcp.env.json .codex/anchore-mcp-launcher.py
 ```
 
-The launcher must not write a banner to stdout because stdout is reserved for MCP JSON-RPC. It starts a stdio process only; no HTTP URL or headers belong in Codex configuration.
+Configuration parsing reports only a fixed error and never echoes a key or value. The launcher must not write a banner to stdout because stdout is reserved for MCP JSON-RPC. It starts a stdio process only; no HTTP URL or headers belong in Codex configuration.
 
 ## Prepare and verify
 
@@ -101,7 +129,8 @@ Verify only non-secret paths and metadata:
 
 ```bash
 test -x /absolute/path/to/uv
-test -x /absolute/path/to/your-repo/.codex/anchore-mcp-launcher.sh
+test -x /absolute/path/to/python3
+test -f /absolute/path/to/your-repo/.codex/anchore-mcp-launcher.py
 test -d /absolute/path/to/anchore-mcp
 codex mcp get anchore-mcp --json | jq '{name, enabled, transport: {type: .transport.type, command: .transport.command, args: .transport.args, cwd: .transport.cwd}, enabled_tools}'
 ```

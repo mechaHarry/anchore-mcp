@@ -43,11 +43,11 @@ Process, MCP-session, and request lifetimes were conflated. Configuration is req
 1. Construct FastMCP without reading Anchore configuration. Register the exact tools and allow discovery to complete without credentials.
 2. Create one bounded `httpx.AsyncClient` in the FastMCP lifespan. Share it through the request context and close it in lifespan teardown.
 3. Load and validate the seven supported `ANCHORE_*` variables inside tool execution. Keep tokens in `SecretStr` and authorization headers only.
-4. Implement retry inside the Anchore GET operation. Keep attempt count and backoff sleep local to that call; retry only network failures and 429/502–504, never timeouts.
+4. Implement retry inside the Anchore GET operation. Keep attempt count and backoff sleep local to that call; retry only `ConnectError`, `ConnectTimeout`, and 429/502–504. Do not retry read, write, pool, or other request timeouts.
 5. Stream each response under an explicit byte ceiling, close it on every success, failure, oversize, or cancellation path, and disable redirects.
 6. Keep pagination, aggregate bytes, OpenAPI structures, evidence traversal, candidate lists, and caches independently bounded. Fail closed when proof is incomplete.
 7. Run FastMCP over stdio only. stdout contains JSON-RPC only; bounded stderr contains sanitized operational events, never payloads or evidence.
-8. On EOF or cancellation, propagate cancellation and close owned tasks, cache state, the HTTP client, and the stdio subprocess.
+8. On request cancellation, propagate cancellation, close the active response stream, and cancel only request-owned work; keep the shared client available for the session. On lifespan teardown or stdio EOF, close owned tasks, cache state, the HTTP client, and the subprocess.
 
 FastMCP’s read-only/idempotent annotations describe intent but do not enforce authorization. Host approvals and the exact enabled-tool allowlist remain necessary.
 

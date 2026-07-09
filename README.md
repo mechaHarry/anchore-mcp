@@ -34,7 +34,7 @@ The server recognizes exactly these seven environment variables; see [env.exampl
 | `ANCHORE_HTTP_RETRY_BASE_MS` | No | Exponential-backoff base, default `300` ms |
 | `ANCHORE_HTTP_RETRY_MAX_MS` | No | Backoff cap, default `8000` ms |
 
-Retries apply only to transient 429 and 502–504 responses and network failures. Timeouts are not retried. Requests are bounded, redirects are disabled, and configuration is loaded at tool-call time. The MCP handshake and tool discovery therefore work without credentials; `anchore_connection_info` reports an unconfigured state normally.
+Retries apply only to transient 429 and 502–504 responses, `ConnectError`, and `ConnectTimeout`. Read, write, pool, and other request timeouts are not retried. Requests are bounded, redirects are disabled, and configuration is loaded at tool-call time. The MCP handshake and tool discovery therefore work without credentials; `anchore_connection_info` reports an unconfigured state normally.
 
 Never commit credentials or print raw MCP environment configuration. Prefer the [protected launcher pattern](examples/codex-agent-setup/README.md).
 

@@ -11,6 +11,8 @@ concurrency:
 
 jobs:
   quality:
+    # Transitional legacy Node gate. Retain until the explicitly approved cutover removes it.
+    name: Legacy Node quality (transitional)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
