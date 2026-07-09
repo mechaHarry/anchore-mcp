@@ -233,18 +233,23 @@ def correlate_blockers(
 
     correlated: list[BlockingVulnerability] = []
     index_by_record: dict[NormalizedVulnerability, int] = {}
+    expanded_ids: set[str] = set()
+    expanded_packages: set[tuple[str, str]] = set()
     for finding in findings:
         matched_records: dict[NormalizedVulnerability, list[CorrelationKind]] = {}
         finding_id = normalize_vulnerability_id(finding.vulnerability_id)
-        if finding_id is not None:
+        if finding_id is not None and finding_id not in expanded_ids:
+            expanded_ids.add(finding_id)
             for vulnerability in by_id.get(finding_id, ()):
                 matched_records.setdefault(vulnerability, []).append("vulnerability_id")
         if finding.package_name is not None and finding.package_version is not None:
             package_key = (finding.package_name, finding.package_version)
-            for vulnerability in by_package.get(package_key, ()):
-                kinds = matched_records.setdefault(vulnerability, [])
-                if "package_identity" not in kinds:
-                    kinds.append("package_identity")
+            if package_key not in expanded_packages:
+                expanded_packages.add(package_key)
+                for vulnerability in by_package.get(package_key, ()):
+                    kinds = matched_records.setdefault(vulnerability, [])
+                    if "package_identity" not in kinds:
+                        kinds.append("package_identity")
         for vulnerability in sorted(matched_records, key=record_order.__getitem__):
             matched_by = tuple(matched_records[vulnerability])
             existing_index = index_by_record.get(vulnerability)

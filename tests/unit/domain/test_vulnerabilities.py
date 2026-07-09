@@ -270,3 +270,35 @@ def test_correlation_normalizes_each_identifier_once_and_uses_exact_indexes(
 
     assert correlate_blockers(findings, records) == ()
     assert calls <= len(findings) + len(records)
+
+
+def test_skewed_duplicate_matches_expand_each_index_bucket_once(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    original_hash = NormalizedVulnerability.__hash__
+    assert original_hash is not None
+    hash_calls = 0
+
+    def counted_hash(value: NormalizedVulnerability) -> int:
+        nonlocal hash_calls
+        hash_calls += 1
+        return original_hash(value)
+
+    monkeypatch.setattr(NormalizedVulnerability, "__hash__", counted_hash)
+    findings = tuple(
+        PolicyBlockingFinding(vulnerability_id="CVE-2099-1234", source_ref=str(index))
+        for index in range(2_000)
+    )
+    records = tuple(
+        NormalizedVulnerability(
+            vulnerability_id="CVE-2099-1234",
+            image_locations=(ImageLocation(f"/path/{index}"),),
+        )
+        for index in range(1_000)
+    )
+
+    correlated = correlate_blockers(findings, records)
+
+    assert len(correlated) == len(records)
+    assert all(item.evidence.policy_finding_ref == "0" for item in correlated)
+    assert hash_calls < 50_000
