@@ -103,6 +103,7 @@ async def test_get_sends_exact_auth_headers_params_and_preserves_base_path() -> 
     )
     assert basic_credentials(request) == ("_api_key", TOKEN_MARKER)
     assert request.headers["accept"] == "application/json"
+    assert request.headers["accept-encoding"] == "identity"
     assert request.headers["x-anchore-account"] == "security"
     assert response.data == {"ok": True}
 
@@ -284,14 +285,17 @@ async def test_invalid_utf8_json_and_nonfinite_numbers_are_rejected(content: byt
 
 
 @pytest.mark.asyncio
-async def test_malformed_gzip_is_an_invalid_response_not_a_network_failure() -> None:
-    stream = ChunkStream([b"not-a-gzip-stream"])
+@pytest.mark.parametrize("encoding", ["gzip", "br", "deflate", "x-private-encoding"])
+async def test_unexpected_content_encoding_is_rejected_before_stream_iteration(
+    encoding: str,
+) -> None:
+    stream = ChunkStream([BODY_MARKER.encode()])
 
     async def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
             stream=stream,
-            headers={"content-encoding": "gzip"},
+            headers={"content-encoding": encoding},
         )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as shared:
@@ -300,8 +304,113 @@ async def test_malformed_gzip_is_an_invalid_response_not_a_network_failure() -> 
                 connection(), "/v2/images", max_response_bytes=100
             )
 
-    assert "not-a-gzip-stream" not in str(caught.value)
+    assert encoding not in str(caught.value)
+    assert BODY_MARKER not in str(caught.value)
+    assert stream.consumed == 0
     assert stream.closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("encoding", ["identity", " Identity "])
+async def test_identity_content_encoding_is_accepted(encoding: str) -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=b"null",
+            headers={"content-encoding": encoding},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as shared:
+        response = await AnchoreHttpClient(shared).get_json(
+            connection(), "/v2/images", max_response_bytes=100
+        )
+
+    assert response.data is None
+
+
+@pytest.mark.asyncio
+async def test_deeply_nested_json_is_a_safe_invalid_response() -> None:
+    content = (b"[" * 10_000) + b"null" + (b"]" * 10_000)
+    stream = ChunkStream([content])
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=stream)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as shared:
+        with pytest.raises(AnchoreInvalidResponseError) as caught:
+            await AnchoreHttpClient(shared).get_json(
+                connection(), "/v2/images", max_response_bytes=len(content)
+            )
+
+    assert "recursion" not in str(caught.value).casefold()
+    assert stream.closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "content_type",
+    [
+        "application/json",
+        "Application/Problem+Json",
+        "application/vnd.anchore.result+json; charset=utf-8",
+    ],
+)
+async def test_json_content_types_are_accepted_case_insensitively(
+    content_type: str,
+) -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"null", headers={"content-type": content_type})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as shared:
+        response = await AnchoreHttpClient(shared).get_json(
+            connection(), "/v2/images", max_response_bytes=100
+        )
+
+    assert response.data is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "content_type",
+    [
+        f"text/html; marker={BODY_MARKER}",
+        "text/json",
+        "application/jsonp",
+        "application/foo+jsonx",
+        "application/foo/bar+json",
+        "",
+    ],
+)
+async def test_non_json_content_type_is_rejected_before_json_parse(
+    content_type: str,
+) -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=b"null",
+            headers={"content-type": content_type},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as shared:
+        with pytest.raises(AnchoreInvalidResponseError) as caught:
+            await AnchoreHttpClient(shared).get_json(
+                connection(), "/v2/images", max_response_bytes=100
+            )
+
+    assert BODY_MARKER not in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_empty_body_allows_non_json_content_type_for_compatibility() -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"", headers={"content-type": "text/html"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as shared:
+        response = await AnchoreHttpClient(shared).get_json(
+            connection(), "/v2/images", max_response_bytes=100
+        )
+
+    assert response.data == {}
 
 
 @pytest.mark.asyncio
@@ -363,19 +472,23 @@ async def test_stream_limit_stops_before_consuming_later_chunks() -> None:
 
 
 @pytest.mark.asyncio
-async def test_gzip_limit_counts_expanded_decoded_bytes() -> None:
+async def test_gzip_expansion_is_rejected_without_decompression() -> None:
     expanded = b'{"value":"' + (b"x" * 1000) + b'"}'
     compressed = gzip.compress(expanded)
     assert len(compressed) < 100
+    stream = ChunkStream([compressed])
 
     async def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=compressed, headers={"content-encoding": "gzip"})
+        return httpx.Response(200, stream=stream, headers={"content-encoding": "gzip"})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as shared:
-        with pytest.raises(AnchoreResponseTooLargeError):
+        with pytest.raises(AnchoreInvalidResponseError):
             await AnchoreHttpClient(shared).get_json(
                 connection(), "/v2/images", max_response_bytes=100
             )
+
+    assert stream.consumed == 0
+    assert stream.closed
 
 
 @pytest.mark.asyncio

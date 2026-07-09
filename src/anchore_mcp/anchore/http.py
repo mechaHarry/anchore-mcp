@@ -36,6 +36,7 @@ DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
 
 _JSON_ADAPTER: TypeAdapter[JsonValue] = TypeAdapter(JsonValue)
 _INVALID_PERCENT_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
+_JSON_SUFFIX_MEDIA_TYPE = re.compile(r"^[!#$%&'*+.^_`|~0-9a-z-]+/[!#$%&'*+.^_`|~0-9a-z-]+\+json$")
 
 type QueryScalar = str | int | float | bool | None
 type StructuredQueryParams = Mapping[str, QueryScalar] | httpx.QueryParams
@@ -77,7 +78,7 @@ class AnchoreHttpClient:
 
         _validate_response_limit(max_response_bytes)
         url = _compose_url(connection.base_url, path)
-        headers = {"accept": "application/json"}
+        headers = {"accept": "application/json", "accept-encoding": "identity"}
         if connection.account is not None:
             headers["x-anchore-account"] = connection.account
         auth = httpx.BasicAuth(connection.username, connection.token.get_secret_value())
@@ -138,6 +139,10 @@ class AnchoreHttpClient:
 
 
 async def _read_json_response(response: httpx.Response, max_response_bytes: int) -> JsonResponse:
+    content_encoding = response.headers.get("content-encoding")
+    if content_encoding is not None and content_encoding.strip().casefold() != "identity":
+        raise AnchoreInvalidResponseError("Anchore returned an unsupported encoded response")
+
     body = bytearray()
     async for chunk in response.aiter_bytes():
         observed = len(body) + len(chunk)
@@ -148,6 +153,10 @@ async def _read_json_response(response: httpx.Response, max_response_bytes: int)
     headers = httpx.Headers(response.headers)
     if not body:
         return JsonResponse(data={}, byte_length=0, headers=headers)
+
+    content_type = response.headers.get("content-type")
+    if content_type is not None and not _is_json_content_type(content_type):
+        raise AnchoreInvalidResponseError("Anchore returned an unexpected content type")
 
     try:
         text = bytes(body).decode("utf-8", errors="strict")
@@ -160,7 +169,13 @@ async def _read_json_response(response: httpx.Response, max_response_bytes: int)
             ),
         )
         data = _JSON_ADAPTER.validate_python(parsed)
-    except (UnicodeDecodeError, json.JSONDecodeError, ValidationError, ValueError) as error:
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        ValidationError,
+        ValueError,
+        RecursionError,
+    ) as error:
         raise AnchoreInvalidResponseError("Anchore returned an invalid JSON response") from error
     return JsonResponse(data=data, byte_length=len(body), headers=headers)
 
@@ -174,6 +189,13 @@ def _parse_finite_float(value: str) -> float:
     if not math.isfinite(parsed):
         raise ValueError("non-finite JSON number")
     return parsed
+
+
+def _is_json_content_type(value: str) -> bool:
+    media_type = value.partition(";")[0].strip().casefold()
+    if media_type == "application/json":
+        return True
+    return _JSON_SUFFIX_MEDIA_TYPE.fullmatch(media_type) is not None
 
 
 def _validate_response_limit(value: int) -> None:
