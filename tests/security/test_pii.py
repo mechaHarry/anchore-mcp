@@ -73,3 +73,12 @@ def test_phone_like_digits_inside_unicode_identifiers_are_not_masked() -> None:
         masked = mask_pii_text(text)
         assert masked.text == text
         assert masked.kinds == ()
+
+
+def test_benign_decomposed_unicode_text_is_unchanged() -> None:
+    text = "Cafe\u0301 benign"
+
+    masked = mask_pii_text(text)
+
+    assert masked.text == text
+    assert masked.kinds == ()

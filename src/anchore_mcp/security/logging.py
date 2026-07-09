@@ -5,7 +5,7 @@ import re
 import sys
 from typing import TextIO
 import unicodedata
-from urllib.parse import unquote
+from urllib.parse import unquote_plus
 
 
 MAX_STDERR_LINE_BYTES = 512
@@ -39,7 +39,7 @@ _QUERY_KEYS = "|".join(
 )
 _QUERY_SECRET = re.compile(rf"(?i)\b({_QUERY_KEYS})\s*=\s*([^&\s#]+)")
 _QUERY_PAIR = re.compile(
-    r"(?i)(?<![A-Za-z0-9_%.-])(?P<key>[A-Za-z0-9_%.\-\[\]]{1,256})\s*=\s*"
+    r"(?i)(?<![A-Za-z0-9_%+.-])(?P<key>[A-Za-z0-9_%+.\-\[\]]{1,256})\s*=\s*"
     r"(?P<value>[^&\s#]+)"
 )
 _CANONICAL_SECRET_KEYS = frozenset(
@@ -65,15 +65,20 @@ def _redact_patterns(text: str) -> str:
     def redact_encoded_query(match: re.Match[str]) -> str:
         decoded_key = match.group("key")
         for _ in range(8):
-            next_key = unquote(decoded_key)
+            next_key = unquote_plus(decoded_key)
             if next_key == decoded_key:
                 break
             decoded_key = next_key
-        canonical_key = "".join(
-            character for character in decoded_key.casefold() if character.isalnum()
-        )
+        key_components = [
+            decoded_key.partition("[")[0],
+            *re.findall(r"\[([^\]]*)\]", decoded_key),
+        ]
+        canonical_components = {
+            "".join(character for character in component.casefold() if character.isalnum())
+            for component in key_components
+        }
         unresolved_encoding = re.search(r"%[0-9a-fA-F]{2}", decoded_key) is not None
-        if canonical_key in _CANONICAL_SECRET_KEYS or unresolved_encoding:
+        if canonical_components & _CANONICAL_SECRET_KEYS or unresolved_encoding:
             return f"{match.group('key')}={_REDACTED}"
         return match.group(0)
 

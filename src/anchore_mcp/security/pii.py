@@ -3,14 +3,17 @@
 from dataclasses import dataclass
 import re
 from typing import Literal
-import unicodedata
 
 
 type PiiKind = Literal["email", "ssn_like", "phone_like"]
 
+_COMBINING_MARKS = "\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff\ufe20-\ufe2f"
 _EMAIL = re.compile(
-    r"(?<![\w.%+-])[\w.!#$%&'*+/=?^`{|}~-]+@(?:[\w-]+\.)+"
-    r"(?:xn--[A-Za-z0-9-]{2,59}|[^\W\d_]{2,63})(?![\w-])",
+    rf"(?<![\w{_COMBINING_MARKS}.%+-])"
+    rf"[\w{_COMBINING_MARKS}.!#$%&'*+/=?^`{{|}}~-]+@"
+    rf"(?:[\w{_COMBINING_MARKS}-]+\.)+"
+    rf"(?:xn--[A-Za-z0-9-]{{2,59}}|(?:[^\W\d_]|[{_COMBINING_MARKS}]){{2,63}})"
+    rf"(?![\w{_COMBINING_MARKS}-])",
     re.IGNORECASE,
 )
 _SSN_LIKE = re.compile(r"\b[0-9]{3}-[0-9]{2}-[0-9]{4}\b")
@@ -53,7 +56,6 @@ class PreparedText[T]:
 def mask_pii_text(text: str) -> MaskedText:
     """Mask supported PII-like substrings and report each detected kind once."""
 
-    text = unicodedata.normalize("NFC", text)
     detected: list[PiiKind] = []
 
     def replacement(kind: PiiKind, marker: str):
