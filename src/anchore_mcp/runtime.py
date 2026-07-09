@@ -34,6 +34,9 @@ class Runtime:
     )
     _closed: bool = False
     _cleanup_task: asyncio.Task[None] | None = None
+    _joining_tasks: set[asyncio.Task[object]] = field(
+        default_factory=lambda: set[asyncio.Task[object]]()
+    )
 
     @property
     def closed(self) -> bool:
@@ -66,6 +69,8 @@ class Runtime:
         current = cast(asyncio.Task[object] | None, asyncio.current_task())
         if current is not None:
             self.owned_tasks.discard(current)
+            if current in self._joining_tasks:
+                return
         if self._cleanup_task is None:
             self._cleanup_task = asyncio.create_task(self._close_resources())
         cleanup = self._cleanup_task
@@ -79,10 +84,14 @@ class Runtime:
         try:
             await asyncio.sleep(0)
             pending = tuple(task for task in self.owned_tasks if not task.done())
-            for task in pending:
-                task.cancel()
-            if pending:
-                await asyncio.gather(*pending, return_exceptions=True)
+            self._joining_tasks.update(pending)
+            try:
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    await asyncio.gather(*pending, return_exceptions=True)
+            finally:
+                self._joining_tasks.difference_update(pending)
             self.owned_tasks.clear()
             self.openapi_cache.clear()
             await self.http_client.aclose()

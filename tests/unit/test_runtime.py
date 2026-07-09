@@ -71,6 +71,29 @@ async def test_concurrent_owned_tasks_can_share_close_without_cancellation_cycle
 
 
 @pytest.mark.asyncio
+async def test_cancelled_owned_task_can_call_close_from_finally_without_cycle() -> None:
+    runtime = create_runtime()
+    started = asyncio.Event()
+    finally_ran = asyncio.Event()
+
+    async def worker() -> None:
+        try:
+            started.set()
+            await asyncio.Event().wait()
+        finally:
+            await runtime.close()
+            finally_ran.set()
+
+    task = runtime.create_task(worker())
+    await started.wait()
+    await asyncio.wait_for(runtime.close(), timeout=1)
+    assert task.cancelled()
+    assert finally_ran.is_set()
+    assert runtime.closed
+    assert runtime.http_client.is_closed
+
+
+@pytest.mark.asyncio
 async def test_context_lifespan_creates_and_closes_fresh_runtime_repeatedly() -> None:
     seen: list[Runtime] = []
     for _ in range(2):
