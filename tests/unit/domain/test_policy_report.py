@@ -66,6 +66,23 @@ async def test_green_policy_skips_vulnerability_request() -> None:
 
 
 @pytest.mark.asyncio
+async def test_unknown_policy_without_blocking_action_skips_vulnerabilities() -> None:
+    client = RecordingHttp(
+        {"/v2/images/sha256%3Aabc/check": [{"status": "unknown", "warnings": ["review"]}]}
+    )
+
+    result = await build_policy_blocking_report(
+        client,
+        connection(),
+        DigestLocator(kind="digest", digest="sha256:abc"),
+        OpenApiCache(client),
+    )
+
+    assert result.outcome == "already_green"
+    assert [path for path, _params, _limit in client.calls] == ["/v2/images/sha256%3Aabc/check"]
+
+
+@pytest.mark.asyncio
 async def test_policy_interpretation_overflow_fails_closed_before_vulnerability_request() -> None:
     policy: object = {"status": "unknown"}
     for _ in range(34):

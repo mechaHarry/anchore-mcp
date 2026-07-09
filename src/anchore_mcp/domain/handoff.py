@@ -27,6 +27,7 @@ from anchore_mcp.models.common import DeploymentContext, EnumerationState
 from anchore_mcp.models.locators import DigestLocator, ImageLocator
 from anchore_mcp.models.results import (
     HandoffDeployment,
+    HandoffEvidence,
     HandoffEvidenceEntry,
     HandoffEvidenceKey,
     RemediationHandoffResult,
@@ -82,6 +83,24 @@ def _single_leaf(error: BaseExceptionGroup[BaseException]) -> BaseException | No
     return child
 
 
+class _ChildRequestCancelled(Exception):
+    """Internal signal that makes TaskGroup cancel sibling requests."""
+
+
+async def _supervise_request_cancellation(task: asyncio.Task[JsonResponse]) -> None:
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        current = asyncio.current_task()
+        if current is not None and current.cancelling():
+            raise
+        if task.cancelled():
+            raise _ChildRequestCancelled from None
+        raise
+    except Exception:
+        return
+
+
 async def build_remediation_handoff(
     client: JsonHttpClient,
     connection: AnchoreConnection,
@@ -131,15 +150,21 @@ async def build_remediation_handoff(
                     ),
                     name="anchore-mcp-handoff-policy",
                 )
+            group.create_task(_supervise_request_cancellation(detail_task))
+            group.create_task(_supervise_request_cancellation(vulnerability_task))
+            if policy_task is not None:
+                group.create_task(_supervise_request_cancellation(policy_task))
     except BaseExceptionGroup as caught:
         leaf = _single_leaf(caught)
+        if isinstance(leaf, _ChildRequestCancelled):
+            raise asyncio.CancelledError from None
         if leaf is not None:
             raise leaf
         raise
 
     detail = detail_task.result()
     vulnerabilities = vulnerability_task.result()
-    evidence: dict[HandoffEvidenceKey, HandoffEvidenceEntry] = {
+    evidence_entries: dict[HandoffEvidenceKey, HandoffEvidenceEntry] = {
         "detail": HandoffEvidenceEntry(data=detail.data, sizeBytes=detail.byte_length),
         "vulnerabilities": HandoffEvidenceEntry(
             data=vulnerabilities.data,
@@ -149,7 +174,7 @@ async def build_remediation_handoff(
     total_size = detail.byte_length + vulnerabilities.byte_length
     if policy_task is not None:
         policy = policy_task.result()
-        evidence["policy"] = HandoffEvidenceEntry(
+        evidence_entries["policy"] = HandoffEvidenceEntry(
             data=policy.data,
             sizeBytes=policy.byte_length,
         )
@@ -176,6 +201,10 @@ async def build_remediation_handoff(
         ),
         imageDigest=digest,
         selection=selection,
-        evidence=evidence,
+        evidence=HandoffEvidence(
+            detail=evidence_entries["detail"],
+            vulnerabilities=evidence_entries["vulnerabilities"],
+            policy=evidence_entries.get("policy"),
+        ),
         totalSizeBytes=total_size,
     )

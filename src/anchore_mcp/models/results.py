@@ -80,6 +80,15 @@ class HandoffDeployment(ContractModel):
 type HandoffEvidenceKey = Literal["detail", "vulnerabilities", "policy"]
 
 
+class HandoffEvidence(ContractModel):
+    detail: HandoffEvidenceEntry
+    vulnerabilities: HandoffEvidenceEntry
+    policy: HandoffEvidenceEntry | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+    )
+
+
 class RemediationHandoffResult(CapabilityResult):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
@@ -88,5 +97,5 @@ class RemediationHandoffResult(CapabilityResult):
     deployment: HandoffDeployment
     image_digest: IdentifierText = Field(alias="imageDigest")
     selection: EnumerationState
-    evidence: dict[HandoffEvidenceKey, HandoffEvidenceEntry]
+    evidence: HandoffEvidence
     total_size_bytes: ByteCount = Field(alias="totalSizeBytes")

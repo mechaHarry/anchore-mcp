@@ -12,9 +12,18 @@ from anchore_mcp.models.locators import DigestLocator
 
 
 class ConcurrentHttp:
-    def __init__(self, expected: int, *, fail_path: str | None = None) -> None:
+    def __init__(
+        self,
+        expected: int,
+        *,
+        fail_path: str | None = None,
+        cancel_path: str | None = None,
+        hold_success: bool = False,
+    ) -> None:
         self.expected = expected
         self.fail_path = fail_path
+        self.cancel_path = cancel_path
+        self.hold_success = hold_success
         self.running_requests = 0
         self.max_running_requests = 0
         self.entered: set[str] = set()
@@ -41,9 +50,14 @@ class ConcurrentHttp:
             self.all_entered.set()
         try:
             await self.all_entered.wait()
+            if path == self.cancel_path:
+                raise asyncio.CancelledError
             if path == self.fail_path:
                 raise AnchoreHttpError(503, "Anchore request failed with HTTP status 503")
-            await asyncio.sleep(0)
+            if self.hold_success:
+                await asyncio.Event().wait()
+            else:
+                await asyncio.sleep(0)
             return JsonResponse(data={"path": path}, byte_length=len(path), headers=httpx.Headers())
         finally:
             self.running_requests -= 1
@@ -76,9 +90,18 @@ async def test_handoff_requests_overlap_without_survivors(
 
 
 @pytest.mark.asyncio
-async def test_handoff_failure_cancels_siblings_and_unwraps_single_leaf() -> None:
-    detail_path = "/v2/images/sha256%3Aabc"
-    client = ConcurrentHttp(3, fail_path=detail_path)
+@pytest.mark.parametrize(
+    "fail_path",
+    [
+        "/v2/images/sha256%3Aabc",
+        "/v2/images/sha256%3Aabc/vuln/all",
+        "/v2/images/sha256%3Aabc/check",
+    ],
+)
+async def test_handoff_failure_cancels_siblings_and_unwraps_single_leaf(
+    fail_path: str,
+) -> None:
+    client = ConcurrentHttp(3, fail_path=fail_path)
 
     with pytest.raises(AnchoreHttpError) as caught:
         await build_remediation_handoff(
@@ -89,5 +112,43 @@ async def test_handoff_failure_cancels_siblings_and_unwraps_single_leaf() -> Non
         )
 
     assert caught.value.status == 503
+    assert client.running_requests == 0
+    assert all(task.done() for task in client.tasks)
+
+
+@pytest.mark.asyncio
+async def test_handoff_child_self_cancellation_cancels_and_joins_siblings() -> None:
+    policy_path = "/v2/images/sha256%3Aabc/check"
+    client = ConcurrentHttp(3, cancel_path=policy_path, hold_success=True)
+
+    with pytest.raises(asyncio.CancelledError):
+        await build_remediation_handoff(
+            client,
+            connection(),
+            DigestLocator(kind="digest", digest="sha256:abc"),
+            include_policy_check=True,
+        )
+
+    assert client.running_requests == 0
+    assert all(task.done() for task in client.tasks)
+
+
+@pytest.mark.asyncio
+async def test_handoff_parent_cancellation_joins_all_children() -> None:
+    client = ConcurrentHttp(3, hold_success=True)
+    parent = asyncio.create_task(
+        build_remediation_handoff(
+            client,
+            connection(),
+            DigestLocator(kind="digest", digest="sha256:abc"),
+            include_policy_check=True,
+        )
+    )
+    await client.all_entered.wait()
+    parent.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await parent
+
     assert client.running_requests == 0
     assert all(task.done() for task in client.tasks)

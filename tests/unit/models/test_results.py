@@ -9,6 +9,7 @@ from anchore_mcp.models.common import DeploymentContext, EnumerationState, Selec
 from anchore_mcp.models.results import (
     ConnectionInfoResult,
     HandoffDeployment,
+    HandoffEvidence,
     HandoffEvidenceEntry,
     ImageDetailResult,
     ImagePolicyCheckResult,
@@ -32,6 +33,14 @@ def selected() -> SelectedImage:
 
 def complete() -> EnumerationState:
     return EnumerationState(complete=True, pages_fetched=1)
+
+
+def handoff_evidence(data: JsonValue | None = None) -> HandoffEvidence:
+    payload: JsonValue = {} if data is None else data
+    return HandoffEvidence(
+        detail=HandoffEvidenceEntry(data=payload, sizeBytes=12),
+        vulnerabilities=HandoffEvidenceEntry(data={"items": []}, sizeBytes=0),
+    )
 
 
 def test_common_models_validate_and_serialize_without_secret_fields() -> None:
@@ -116,7 +125,7 @@ def test_all_capability_results_have_context_and_warnings() -> None:
             ),
             imageDigest="sha256:abc",
             selection=complete(),
-            evidence={"detail": HandoffEvidenceEntry(data=evidence, sizeBytes=12)},
+            evidence=handoff_evidence(evidence),
             totalSizeBytes=12,
         ),
     ]
@@ -139,8 +148,8 @@ def test_handoff_uses_public_camel_case_aliases() -> None:
         ),
         imageDigest="sha256:abc",
         selection=complete(),
-        evidence={},
-        totalSizeBytes=0,
+        evidence=handoff_evidence(),
+        totalSizeBytes=12,
     )
 
     dumped = result.model_dump(mode="json", by_alias=True)
@@ -150,7 +159,9 @@ def test_handoff_uses_public_camel_case_aliases() -> None:
     assert dumped["generatedAt"] == "2026-07-09T00:00:00Z"
     assert dumped["imageDigest"] == "sha256:abc"
     assert dumped["deployment"]["apiVersion"] == "v2"
-    assert dumped["totalSizeBytes"] == 0
+    assert dumped["totalSizeBytes"] == 12
+    assert list(dumped["evidence"]) == ["detail", "vulnerabilities"]
+    assert {"detail", "vulnerabilities"} <= set(schema["$defs"]["HandoffEvidence"]["required"])
     assert {"handoffVersion", "generatedAt", "imageDigest", "totalSizeBytes"} <= set(
         schema["properties"]
     )
@@ -211,8 +222,8 @@ def test_handoff_image_digest_rejects_blank_or_control_text(invalid: str) -> Non
             ),
             imageDigest=invalid,
             selection=complete(),
-            evidence={},
-            totalSizeBytes=0,
+            evidence=handoff_evidence(),
+            totalSizeBytes=12,
         )
 
 
