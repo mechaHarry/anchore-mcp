@@ -51,6 +51,11 @@ def test_package_and_distribution_versions_match_release() -> None:
     assert version("anchore-mcp") == "4.0.0"
 
 
+def test_fastmcp_runtime_is_exactly_supported_patch() -> None:
+    assert version("fastmcp") == "3.4.4"
+    assert version("fastmcp-slim") == "3.4.4"
+
+
 def test_console_entrypoint_targets_main() -> None:
     entry_points = distribution("anchore-mcp").entry_points
     console_script = next(

@@ -1,6 +1,6 @@
 # Agent guidance — anchore-mcp
 
-Local Python 3.12, FastMCP 3.4.3 **stdio** server for read-only Anchore Enterprise evidence. One HTTPS deployment is configured per process; use separate MCP entries for separate deployments.
+Local Python 3.12, FastMCP 3.4.4 **stdio** server for read-only Anchore Enterprise evidence. One HTTPS deployment is configured per process; use separate MCP entries for separate deployments.
 
 ## Sources of truth
 
