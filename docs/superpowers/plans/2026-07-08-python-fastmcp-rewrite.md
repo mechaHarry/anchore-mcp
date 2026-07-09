@@ -67,7 +67,7 @@ Use this project shape in `pyproject.toml`:
 
 ```toml
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling==1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -86,10 +86,11 @@ anchore-mcp = "anchore_mcp.__main__:main"
 [dependency-groups]
 dev = [
   "build>=1.3,<2",
+  "hatchling==1.27.0",
   "hypothesis>=6.135,<7",
   "pip-audit>=2.9,<3",
   "pyright>=1.1.403,<2",
-  "pytest>=8.4,<9",
+  "pytest>=9.0.3,<10",
   "pytest-asyncio>=1.0,<2",
   "pytest-cov>=6.2,<7",
   "respx>=0.22,<0.23",
@@ -98,6 +99,10 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/anchore_mcp"]
+
+[tool.hatch.build.targets.sdist]
+ignore-vcs = true
+include = ["/LICENSE", "/README.md", "/pyproject.toml", "/src/anchore_mcp"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
