@@ -63,10 +63,11 @@ class Runtime:
     async def close(self) -> None:
         if self._closed:
             return
+        current = cast(asyncio.Task[object] | None, asyncio.current_task())
+        if current is not None:
+            self.owned_tasks.discard(current)
         if self._cleanup_task is None:
-            self._cleanup_task = asyncio.create_task(
-                self._close_resources(exclude=asyncio.current_task())
-            )
+            self._cleanup_task = asyncio.create_task(self._close_resources())
         cleanup = self._cleanup_task
         try:
             await asyncio.shield(cleanup)
@@ -74,11 +75,10 @@ class Runtime:
             await cleanup
             raise
 
-    async def _close_resources(self, *, exclude: asyncio.Task[object] | None) -> None:
+    async def _close_resources(self) -> None:
         try:
-            pending = tuple(
-                task for task in self.owned_tasks if not task.done() and task is not exclude
-            )
+            await asyncio.sleep(0)
+            pending = tuple(task for task in self.owned_tasks if not task.done())
             for task in pending:
                 task.cancel()
             if pending:
