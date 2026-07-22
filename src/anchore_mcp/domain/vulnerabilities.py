@@ -14,6 +14,9 @@ from anchore_mcp.domain.policy import (
 MAX_VULNERABILITY_ROWS = 1_000
 MAX_LOCATIONS_PER_VULNERABILITY = 256
 MAX_FIX_VERSIONS = 64
+# A 20 MiB response may contain many ordinary fields per accepted row.  Keep
+# this separate from the smaller policy-evidence traversal budget.
+MAX_VULNERABILITY_JSON_NODES = 50_000
 
 type LocationKind = Literal["file", "directory", "unknown"]
 type CorrelationKind = Literal["vulnerability_id", "package_identity"]
@@ -185,7 +188,7 @@ def _locations(row: dict[str, object]) -> tuple[ImageLocation, ...]:
 
 
 def extract_vulnerability_records(payload: object) -> tuple[NormalizedVulnerability, ...]:
-    if not json_within_limits(payload):
+    if not json_within_limits(payload, max_nodes=MAX_VULNERABILITY_JSON_NODES):
         return ()
     rows = _rows(payload)
     if rows is None:

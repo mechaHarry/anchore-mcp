@@ -101,7 +101,12 @@ def _child_path(parent: str, key: str) -> str:
     return path
 
 
-def _bounded_objects(payload: object) -> tuple[tuple[tuple[dict[str, object], str], ...], bool]:
+def _bounded_objects(
+    payload: object,
+    *,
+    max_nodes: int = MAX_JSON_NODES,
+    collect_objects: bool = True,
+) -> tuple[tuple[tuple[dict[str, object], str], ...], bool]:
     objects: list[tuple[dict[str, object], str]] = []
     stack: list[tuple[object, str, int]] = [(payload, "$", 0)]
     seen: set[int] = set()
@@ -110,11 +115,7 @@ def _bounded_objects(payload: object) -> tuple[tuple[tuple[dict[str, object], st
     while stack:
         value, source_ref, depth = stack.pop()
         nodes += 1
-        if (
-            nodes > MAX_JSON_NODES
-            or depth > MAX_JSON_DEPTH
-            or len(source_ref) > MAX_SOURCE_REF_LENGTH
-        ):
+        if nodes > max_nodes or depth > MAX_JSON_DEPTH or len(source_ref) > MAX_SOURCE_REF_LENGTH:
             return (), False
         if isinstance(value, str) and len(value) > MAX_JSON_STRING_LENGTH:
             return (), False
@@ -142,7 +143,8 @@ def _bounded_objects(payload: object) -> tuple[tuple[tuple[dict[str, object], st
         if any(not isinstance(key, str) or len(key) > MAX_JSON_STRING_LENGTH for key in mapping):
             return (), False
         typed_value = cast(dict[str, object], mapping)
-        objects.append((typed_value, source_ref))
+        if collect_objects:
+            objects.append((typed_value, source_ref))
         entries = list(typed_value.items())
         for key, child in reversed(entries):
             stack.append((child, _child_path(source_ref, key), depth + 1))
@@ -150,10 +152,14 @@ def _bounded_objects(payload: object) -> tuple[tuple[tuple[dict[str, object], st
     return tuple(objects), True
 
 
-def json_within_limits(payload: object) -> bool:
-    """Validate the shared hostile-JSON traversal limits without recursion."""
+def json_within_limits(payload: object, *, max_nodes: int = MAX_JSON_NODES) -> bool:
+    """Validate hostile-JSON traversal limits without recursion.
 
-    _, complete = _bounded_objects(payload)
+    Callers may raise only the total-node budget when their own row and response
+    limits make a richer, otherwise ordinary response safe to normalize.
+    """
+
+    _, complete = _bounded_objects(payload, max_nodes=max_nodes, collect_objects=False)
     return complete
 
 

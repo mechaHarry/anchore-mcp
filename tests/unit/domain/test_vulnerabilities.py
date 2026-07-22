@@ -2,6 +2,7 @@ from pytest import MonkeyPatch
 
 from anchore_mcp.domain.policy import PolicyBlockingFinding
 from anchore_mcp.domain.vulnerabilities import (
+    MAX_VULNERABILITY_JSON_NODES,
     MAX_VULNERABILITY_ROWS,
     BlockingVulnerability,
     CorrelationEvidence,
@@ -167,6 +168,34 @@ def test_hostile_vulnerability_collections_fail_closed() -> None:
         )
         == ()
     )
+
+
+def test_rich_bounded_vulnerability_rows_are_not_rejected_by_policy_node_budget() -> None:
+    """Anchore rows can be wide without being deeply nested or oversized."""
+
+    row_count = 290
+    extra_fields = 35
+    payload = {
+        "items": [
+            {
+                "vuln": f"CVE-2099-{index + 10_000}",
+                "package_name": "synthetic-package",
+                "package_version": "1.0.0",
+                **{f"metadata_{field}": "value" for field in range(extra_fields)},
+            }
+            for index in range(row_count)
+        ]
+    }
+
+    # The representative shape is above the 10,000-node policy budget but
+    # well below the vulnerability-specific budget and all structural limits.
+    assert row_count * (extra_fields + 4) > 10_000
+    assert row_count * (extra_fields + 4) < MAX_VULNERABILITY_JSON_NODES
+    records = extract_vulnerability_records(payload)
+
+    assert len(records) == row_count
+    assert records[0].vulnerability_id == "CVE-2099-10000"
+    assert records[-1].vulnerability_id == "CVE-2099-10289"
 
 
 def test_unsupported_ids_and_oversized_irrelevant_strings_fail_closed() -> None:
