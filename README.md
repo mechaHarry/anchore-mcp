@@ -100,5 +100,6 @@ Replace the synthetic digest with an approved image digest before making a real 
 - **Missing configuration:** the MCP child needs `ANCHORE_URL` and `ANCHORE_TOKEN`; values exported only in an interactive terminal may not reach Codex.
 - **HTTPS:** `ANCHORE_URL` must be HTTPS and must not contain embedded credentials, a query, or a fragment.
 - **stdio:** configure a local command, not an HTTP/SSE URL; keep stdin open and do not use wrappers that print banners to stdout.
+- **Policy blockers:** red vulnerability policies are correlated only to exact normalized vulnerability IDs or exact package identities. Rich but bounded Anchore vulnerability rows are supported; oversized, deeply nested, or structurally invalid evidence still fails closed.
 
 See the [remediation handoff contract](docs/remediation-handoff-schema.md) and [Anchore API notes](docs/research/anchore-api-notes.md) for advanced integration details.
