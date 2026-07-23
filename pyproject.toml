@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "anchore-mcp"
-version = "4.0.1"
+version = "4.0.3"
 description = "Read-only MCP server for Anchore Enterprise"
 requires-python = ">=3.12,<3.13"
 dependencies = [

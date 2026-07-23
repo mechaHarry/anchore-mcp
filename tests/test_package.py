@@ -15,7 +15,7 @@ from pytest import MonkeyPatch
 
 
 def _validated_sdist_members(members: Iterable[tarfile.TarInfo]) -> set[str]:
-    root = PurePosixPath("anchore_mcp-4.0.1")
+    root = PurePosixPath("anchore_mcp-4.0.3")
     files: set[str] = set()
     seen: set[str] = set()
 
@@ -47,8 +47,8 @@ def _validated_sdist_members(members: Iterable[tarfile.TarInfo]) -> set[str]:
 
 
 def test_package_and_distribution_versions_match_release() -> None:
-    assert anchore_mcp.__version__ == "4.0.1"
-    assert version("anchore-mcp") == "4.0.1"
+    assert anchore_mcp.__version__ == "4.0.3"
+    assert version("anchore-mcp") == "4.0.3"
 
 
 def test_fastmcp_runtime_is_exactly_supported_patch() -> None:
@@ -91,7 +91,7 @@ def test_module_guard_runs_server(monkeypatch: MonkeyPatch) -> None:
 
 
 def test_sdist_member_validation_rejects_unsafe_symlink() -> None:
-    member = tarfile.TarInfo("anchore_mcp-4.0.1/src/anchore_mcp/leak")
+    member = tarfile.TarInfo("anchore_mcp-4.0.3/src/anchore_mcp/leak")
     member.type = tarfile.SYMTYPE
     member.linkname = "/etc/passwd"
 
@@ -104,7 +104,7 @@ def test_sdist_member_validation_rejects_unsafe_symlink() -> None:
     [tarfile.LNKTYPE, tarfile.FIFOTYPE, tarfile.CHRTYPE, tarfile.BLKTYPE],
 )
 def test_sdist_member_validation_rejects_other_non_regular_entries(member_type: bytes) -> None:
-    member = tarfile.TarInfo("anchore_mcp-4.0.1/src/anchore_mcp/leak")
+    member = tarfile.TarInfo("anchore_mcp-4.0.3/src/anchore_mcp/leak")
     member.type = member_type
     member.linkname = "README.md"
 
@@ -113,8 +113,8 @@ def test_sdist_member_validation_rejects_other_non_regular_entries(member_type: 
 
 
 def test_sdist_member_validation_rejects_duplicate_paths() -> None:
-    first = tarfile.TarInfo("anchore_mcp-4.0.1/src/anchore_mcp/config.py")
-    second = tarfile.TarInfo("anchore_mcp-4.0.1/src/anchore_mcp/config.py")
+    first = tarfile.TarInfo("anchore_mcp-4.0.3/src/anchore_mcp/config.py")
+    second = tarfile.TarInfo("anchore_mcp-4.0.3/src/anchore_mcp/config.py")
 
     with pytest.raises(AssertionError, match="duplicate"):
         _validated_sdist_members([first, second])
